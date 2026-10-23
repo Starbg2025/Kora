@@ -164,6 +164,9 @@ export default function Conversation() {
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
   const [toast, setToast] = useState('');
   const [convPinned, setConvPinned] = useState(false);
+  const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
+  const [forwardDMs, setForwardDMs] = useState<{ id: string; title: string }[]>([]);
+  const [forwarding, setForwarding] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -273,6 +276,13 @@ export default function Conversation() {
     setConvPinned(getPinnedDMs().includes(dmId));
     setLoading(false);
     requestAnimationFrame(() => scrollToBottom(false));
+    // Lien copié vers un message précis (#msg-<id>) : y sauter directement
+    const hash = window.location.hash;
+    if (hash.startsWith('#msg-')) {
+      const targetId = hash.slice(5);
+      window.setTimeout(() => jumpTo(targetId), 400);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
     markRead();
   }, [sb, dmId, me, markRead]);
 
@@ -291,7 +301,8 @@ export default function Conversation() {
     load();
   }, [dmId, load]);
 
-  // Temps réel : messages + réactions + épinglés
+  // Temps réel : messages. Canal dédié et isolé : si une table optionnelle
+  // (réactions, épinglés) est absente, cela ne doit JAMAIS casser les messages.
   useEffect(() => {
     if (!dmId || !me) return;
     const ch = sb
@@ -314,6 +325,18 @@ export default function Conversation() {
         const old = payload.old as { id: string };
         setMessages((prev) => prev.filter((x) => x.id !== old.id));
       })
+      .subscribe();
+    return () => {
+      ch.unsubscribe();
+    };
+  }, [sb, dmId, me, markRead]);
+
+  // Temps réel : réactions + épinglés, UNIQUEMENT si les tables existent
+  // (migration 20261023_reactions_pins.sql appliquée).
+  useEffect(() => {
+    if (!dmId || !me || !reactionsReady) return;
+    const ch = sb
+      .channel(`dm:${dmId}:rx`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (payload) => {
         const row = (payload.new ?? payload.old) as MessageReaction;
         if (!row?.message_id) return;
@@ -345,7 +368,7 @@ export default function Conversation() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, dmId, me, markRead]);
+  }, [sb, dmId, me, reactionsReady]);
 
   const onScroll = () => {
     if (nearBottom()) {
@@ -481,6 +504,85 @@ export default function Conversation() {
       flash('Épinglage impossible pour le moment.');
     } else {
       flash(isPinned ? 'Message désépinglé.' : 'Message épinglé.');
+    }
+  };
+
+  const markUnread = async (m: Message) => {
+    if (!dmId) return;
+    setSheetMsg(null);
+    await sb.from('dm_members').update({ last_read_at: new Date(new Date(m.created_at).getTime() - 1).toISOString() }).eq('dm_id', dmId).eq('user_id', me);
+    flash('Message marqué comme non lu.');
+  };
+
+  const copyMessageLink = async (m: Message) => {
+    setSheetMsg(null);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/app/dm/${dmId}#msg-${m.id}`);
+      flash('Lien du message copié.');
+    } catch {
+      flash('Copie impossible.');
+    }
+  };
+
+  const openForward = async (m: Message) => {
+    setSheetMsg(null);
+    setForwardMsg(m);
+    setForwardDMs([]);
+    const { data: memberships } = await sb.from('dm_members').select('dm_id').eq('user_id', me);
+    const ids = ((memberships ?? []) as { dm_id: string }[]).map((r) => r.dm_id).filter((id) => id !== dmId);
+    if (ids.length === 0) return;
+    const [{ data: dms }, { data: mems }] = await Promise.all([
+      sb.from('dms').select('id,name,is_group').in('id', ids),
+      sb.from('dm_members').select('dm_id,user_id,profiles(id,username,display_name)').in('dm_id', ids),
+    ]);
+    const profByDm = new Map<string, Profile[]>();
+    for (const r of (mems ?? []) as unknown as { dm_id: string; user_id: string; profiles: Profile }[]) {
+      if (!r.profiles) continue;
+      const arr = profByDm.get(r.dm_id) ?? [];
+      arr.push(r.profiles);
+      profByDm.set(r.dm_id, arr);
+    }
+    const list = ((dms ?? []) as { id: string; name: string | null; is_group: boolean }[]).map((d) => {
+      const others = (profByDm.get(d.id) ?? []).filter((p) => p.id !== me);
+      return {
+        id: d.id,
+        title: d.is_group ? d.name || 'Groupe sans nom' : others[0]?.display_name || others[0]?.username || 'Conversation',
+      };
+    });
+    setForwardDMs(list);
+  };
+
+  const doForward = async (targetId: string) => {
+    const m = forwardMsg;
+    if (!m || forwarding) return;
+    setForwarding(true);
+    try {
+      let attachment_path: string | null = null;
+      let attachment_name: string | null = null;
+      if (m.attachment_path) {
+        const { data: blob, error: dlErr } = await sb.storage.from('pieces-jointes').download(m.attachment_path);
+        if (dlErr || !blob) throw dlErr ?? new Error('Téléchargement impossible.');
+        const safeName = (m.attachment_name ?? 'fichier').replace(/[^\w.\-() ]+/g, '_');
+        attachment_path = `${targetId}/${crypto.randomUUID()}_${safeName}`;
+        attachment_name = m.attachment_name;
+        const { error: upErr } = await sb.storage.from('pieces-jointes').upload(attachment_path, blob);
+        if (upErr) throw upErr;
+      }
+      const { error } = await sb.from('messages').insert({
+        dm_id: targetId,
+        author_id: me,
+        content: m.content,
+        attachment_path,
+        attachment_name,
+        reply_to: null,
+      });
+      if (error) throw error;
+      setForwardMsg(null);
+      flash('Message transféré.');
+    } catch {
+      flash('Transfert impossible.');
+    } finally {
+      setForwarding(false);
     }
   };
 
@@ -819,6 +921,7 @@ export default function Conversation() {
                       e.preventDefault();
                       setSheetMsg(m);
                     }}
+                    onDoubleClick={() => toggleReaction(m.id, '❤️')}
                     onTouchStart={() => startPress(m)}
                     onTouchEnd={endPress}
                     onTouchMove={endPress}
@@ -1205,18 +1308,37 @@ export default function Conversation() {
           isMe={sheetMsg.author_id === me}
           isPinned={pinnedIds.has(sheetMsg.id)}
           onReact={(e) => toggleReaction(sheetMsg.id, e)}
-          onReply={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}
-          onCopy={() => copyText(sheetMsg)}
-          onTogglePin={() => togglePin(sheetMsg)}
           onEdit={() => { setEditingId(sheetMsg.id); setEditText(sheetMsg.content); setSheetMsg(null); }}
+          onReply={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}
+          onForward={() => openForward(sheetMsg)}
+          onCopy={() => copyText(sheetMsg)}
+          onMarkUnread={() => markUnread(sheetMsg)}
+          onTogglePin={() => togglePin(sheetMsg)}
+          onCopyLink={() => copyMessageLink(sheetMsg)}
           onDelete={() => setDeleteTarget(sheetMsg)}
-          onProfile={() => {
-            const a = profilesById.get(sheetMsg.author_id);
-            if (a) { setProfileTarget(a); setShowProfile(true); }
-            setSheetMsg(null);
-          }}
           onClose={() => setSheetMsg(null)}
         />
+      )}
+
+      {forwardMsg && (
+        <Modal title="Transférer à…" onClose={() => setForwardMsg(null)}>
+          {forwardDMs.length === 0 ? (
+            <p className="text-sm text-muted">Aucune autre conversation. Écris d’abord à quelqu’un pour pouvoir transférer.</p>
+          ) : (
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {forwardDMs.map((d) => (
+                <button
+                  key={d.id}
+                  disabled={forwarding}
+                  onClick={() => doForward(d.id)}
+                  className="block w-full rounded-xl px-4 py-2.5 text-left text-sm font-medium hover:bg-surface2 disabled:opacity-50"
+                >
+                  {forwarding ? 'Transfert…' : d.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
 
       {showProfile && profileTarget && (
