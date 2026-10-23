@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFriends } from '../hooks/useFriends';
 import { usePresence } from '../context/PresenceContext';
 import Avatar from '../components/Avatar';
+import { openDirectDM } from '../lib/dm';
 
 /** Écran « Nouveau message » façon Discord : recherche d'amis + suggestions. */
 export default function NewMessage() {
@@ -34,9 +35,8 @@ export default function NewMessage() {
     setBusy(true);
     setError('');
     try {
-      const { data, error: rpcErr } = await sb.rpc('create_direct_dm', { p_other: friendId });
-      if (rpcErr) throw rpcErr;
-      navigate(`/app/dm/${data as string}`);
+      const dmId = await openDirectDM(sb, user?.id ?? '', friendId);
+      navigate(`/app/dm/${dmId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ouverture impossible.');
       setBusy(false);

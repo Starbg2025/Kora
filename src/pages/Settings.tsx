@@ -136,6 +136,7 @@ function ProfileTab() {
   const [status, setStatus] = useState<PresenceStatus>(profile?.status ?? 'en_ligne');
   const [customStatus, setCustomStatus] = useState(profile?.custom_status ?? '');
   const [duration, setDuration] = useState('jamais');
+  const [bannerColor, setBannerColor] = useState(profile?.banner_color ?? '');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -146,6 +147,7 @@ function ProfileTab() {
     setBio(profile?.bio ?? '');
     setStatus(profile?.status ?? 'en_ligne');
     setCustomStatus(profile?.custom_status ?? '');
+    setBannerColor(profile?.banner_color ?? '');
   }, [profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uploadAvatar = async (f: File) => {
@@ -204,6 +206,7 @@ function ProfileTab() {
         status,
         custom_status: customStatus.trim().slice(0, 100),
         custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
+        banner_color: bannerColor || null,
       });
       setNotice('Profil enregistré.');
     } catch (err) {
@@ -263,6 +266,28 @@ function ProfileTab() {
       <div>
         <label htmlFor="p-custom" className="mb-1 block text-sm font-medium">Statut personnalisé</label>
         <input id="p-custom" value={customStatus} onChange={(e) => setCustomStatus(e.target.value)} className={inputCls} maxLength={100} placeholder="Ex. : En réunion jusqu’à 15 h" />
+      </div>
+      <div>
+        <span className="mb-1 block text-sm font-medium">Couleur de bannière</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBannerColor('')}
+            title="Bannière par défaut"
+            className={`h-9 w-9 rounded-full bg-gradient-to-br from-primary via-[#a855f7] to-accent ${bannerColor === '' ? 'ring-2 ring-primary ring-offset-2 ring-offset-base' : 'opacity-70 hover:opacity-100'}`}
+          />
+          {['#7C3AED', '#3B82F6', '#14B8A6', '#22C55E', '#F59E0B', '#EC4899', '#EF4444', '#6B7280'].map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setBannerColor(c)}
+              title={c}
+              style={{ backgroundColor: c }}
+              className={`h-9 w-9 rounded-full ${bannerColor === c ? 'ring-2 ring-primary ring-offset-2 ring-offset-base' : 'opacity-70 hover:opacity-100'}`}
+            />
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">Gratuit, comme tout sur Kora.</p>
       </div>
       {notice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm">{notice}</p>}
       <button disabled={busy} className="rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50">

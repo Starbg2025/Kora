@@ -7,6 +7,7 @@ import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
 import { STATUS_LABELS, type Profile } from '../lib/types';
+import { openDirectDM } from '../lib/dm';
 
 type Tab = 'amis' | 'recues' | 'envoyees' | 'bloques';
 
@@ -133,10 +134,10 @@ export default function Friends() {
 
   const message = async (p: Profile) => {
     setBusyId(p.id);
+    setNotice('');
     try {
-      const { data, error } = await sb.rpc('create_direct_dm', { p_other: p.id });
-      if (error) throw error;
-      navigate(`/app/dm/${data}`);
+      const dmId = await openDirectDM(sb, user?.id ?? '', p.id);
+      navigate(`/app/dm/${dmId}`);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Conversation impossible.');
     } finally {
@@ -151,9 +152,9 @@ export default function Friends() {
     const p = e.profile;
     const st = online[p.id]?.status ?? 'hors_ligne';
     return (
-      <div key={e.friendship.id} className="dm-item flex items-center gap-3 rounded-xl px-4 py-3 hover:bg-surface2">
+      <div key={e.friendship.id} className="dm-item flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 hover:bg-surface2">
         <Avatar profile={p} size={44} status={st} showStatus />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-32">
           <p className="truncate font-semibold">{p.display_name || p.username}</p>
           <p className="truncate text-xs text-muted">
             @{p.username} · {presenceLabel(st)}

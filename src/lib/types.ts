@@ -10,6 +10,7 @@ export interface Profile {
   custom_status: string;
   custom_status_expires_at: string | null;
   created_at: string;
+  banner_color: string | null;
 }
 
 export interface UserSettings {
@@ -68,6 +69,23 @@ export interface MessagePin {
   message_id: string;
   pinned_by: string;
   pinned_at: string;
+}
+
+export interface MessagePoll {
+  id: string;
+  message_id: string;
+  question: string;
+  options: string[];
+  created_by: string;
+  ends_at: string | null;
+  created_at: string;
+}
+
+export interface MessagePollVote {
+  poll_id: string;
+  user_id: string;
+  option_index: number;
+  created_at: string;
 }
 
 export const STATUS_LABELS: Record<PresenceStatus, string> = {

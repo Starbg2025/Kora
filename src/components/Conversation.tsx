@@ -11,7 +11,10 @@ import MessageActionSheet from '../components/MessageActionSheet';
 import ProfileCard from '../components/ProfileCard';
 import { formatDay, formatFull, formatTime } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
-import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessageReaction, type Profile } from '../lib/types';
+import { openDirectDM } from '../lib/dm';
+import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessagePoll, type MessagePollVote, type MessageReaction, type Profile } from '../lib/types';
+import PollModal from './PollModal';
+import PollCard from './PollCard';
 
 interface Member extends DMMemberRow {
   profiles: Profile | null;
@@ -135,6 +138,11 @@ export default function Conversation() {
   const [reactionsReady, setReactionsReady] = useState(false);
   const [pins, setPins] = useState<MessagePin[]>([]);
   const [pinsReady, setPinsReady] = useState(false);
+  const [polls, setPolls] = useState<Record<string, MessagePoll>>({});
+  const [pollVotes, setPollVotes] = useState<MessagePollVote[]>([]);
+  const [pollsReady, setPollsReady] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [friendship, setFriendship] = useState<Friendship | null>(null);
   const [loading, setLoading] = useState(true);
   const [notMember, setNotMember] = useState(false);
@@ -255,6 +263,30 @@ export default function Conversation() {
     setReactionsReady(rReady);
     setPinsReady(pReady);
 
+    // Sondages (nécessitent la migration 20261023_polls.sql)
+    let pollReady = false;
+    if (ids.length > 0) {
+      const { data: pollRows, error: pollErr } = await sb.from('message_polls').select('*').in('message_id', ids);
+      if (!pollErr) {
+        pollReady = true;
+        const pr = (pollRows ?? []) as MessagePoll[];
+        const map: Record<string, MessagePoll> = {};
+        for (const p of pr) map[p.message_id] = p;
+        setPolls(map);
+        if (pr.length > 0) {
+          const { data: vRows } = await sb.from('message_poll_votes').select('*').in('poll_id', pr.map((p) => p.id));
+          setPollVotes((vRows ?? []) as MessagePollVote[]);
+        } else {
+          setPollVotes([]);
+        }
+      }
+    } else {
+      pollReady = true;
+      setPolls({});
+      setPollVotes([]);
+    }
+    setPollsReady(pollReady);
+
     // Amitié éventuelle (pour la fiche profil « Ami(e) depuis le »)
     const other = mems.find((m) => m.user_id !== me);
     if (other && !(dmData as DM).is_group) {
@@ -369,6 +401,54 @@ export default function Conversation() {
       ch.unsubscribe();
     };
   }, [sb, dmId, me, reactionsReady]);
+
+  // Temps réel : sondages + votes, UNIQUEMENT si les tables existent
+  // (migration 20261023_polls.sql appliquée).
+  useEffect(() => {
+    if (!dmId || !me || !pollsReady) return;
+    const ch = sb
+      .channel(`dm:${dmId}:polls`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_polls' }, (payload) => {
+        const row = (payload.new ?? payload.old) as MessagePoll;
+        if (!row?.message_id) return;
+        setMessages((prev) => {
+          if (!prev.some((m) => m.id === row.message_id)) return prev;
+          if (payload.eventType === 'DELETE') {
+            setPolls((ps) => {
+              const n = { ...ps };
+              delete n[row.message_id];
+              return n;
+            });
+            setPollVotes((vs) => vs.filter((v) => v.poll_id !== row.id));
+          } else {
+            setPolls((ps) => ({ ...ps, [row.message_id]: row as MessagePoll }));
+          }
+          return prev;
+        });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_poll_votes' }, (payload) => {
+        const row = (payload.new ?? payload.old) as MessagePollVote;
+        if (!row?.poll_id) return;
+        setPolls((ps) => {
+          const known = new Set(Object.values(ps).map((p) => p.id));
+          if (!known.has(row.poll_id)) return ps;
+          if (payload.eventType === 'INSERT') {
+            setPollVotes((vs) =>
+              vs.some((v) => v.poll_id === row.poll_id && v.user_id === row.user_id)
+                ? vs
+                : [...vs, row as MessagePollVote],
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setPollVotes((vs) => vs.filter((v) => !(v.poll_id === row.poll_id && v.user_id === row.user_id)));
+          }
+          return ps;
+        });
+      })
+      .subscribe();
+    return () => {
+      ch.unsubscribe();
+    };
+  }, [sb, dmId, me, pollsReady]);
 
   const onScroll = () => {
     if (nearBottom()) {
@@ -665,9 +745,12 @@ export default function Conversation() {
   const openMessageTo = async (profile: Profile) => {
     setShowProfile(false);
     setSheetMsg(null);
-    const { data, error } = await sb.rpc('create_direct_dm', { p_other: profile.id });
-    if (!error && data) navigate(`/app/dm/${data as string}`);
-    else flash('Ouverture de la conversation impossible.');
+    try {
+      const dmId = await openDirectDM(sb, me, profile.id);
+      navigate(`/app/dm/${dmId}`);
+    } catch {
+      flash('Ouverture de la conversation impossible.');
+    }
   };
 
   // Appui long (mobile) + clic droit (bureau) sur un message
@@ -687,7 +770,21 @@ export default function Conversation() {
     );
   }
   if (notMember || !dm) {
-    return <EmptyState title="Conversation introuvable" text="Elle n’existe pas ou tu n’y as plus accès." />;
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <h2 className="text-lg font-extrabold">Conversation introuvable</h2>
+        <p className="text-sm text-muted">Elle n’existe pas ou tu n’y as plus accès.</p>
+        <button
+          onClick={() => { setNotMember(false); setLoading(true); load(); }}
+          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90"
+        >
+          Réessayer
+        </button>
+        <button onClick={() => navigate('/app/dm')} className="text-sm font-medium text-muted hover:text-ink">
+          Retour aux discussions
+        </button>
+      </div>
+    );
   }
 
   const typers = members
@@ -983,6 +1080,14 @@ export default function Conversation() {
                         <>
                           {m.content && <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.content}</p>}
                           {m.attachment_path && <Attachment path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
+                          {polls[m.id] && (
+                            <PollCard
+                              poll={polls[m.id]}
+                              votes={pollVotes.filter((v) => v.poll_id === polls[m.id].id)}
+                              meId={me}
+                              flash={flash}
+                            />
+                          )}
                           {m.edited_at && <span className="ml-2 text-[11px] text-muted">(modifié)</span>}
                         </>
                       )}
@@ -1074,12 +1179,31 @@ export default function Conversation() {
                   <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier">✕</button>
                 </div>
               )}
-              <div className="flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
+              <div className="relative flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
+                {showAttachMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
+                    <div className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
+                      <button
+                        onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                      >
+                        <span className="text-lg">📎</span> Joindre un fichier
+                      </button>
+                      <button
+                        onClick={() => { setShowAttachMenu(false); setShowPollModal(true); }}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                      >
+                        <span className="text-lg">📊</span> Créer un sondage
+                      </button>
+                    </div>
+                  </>
+                )}
                 <button
-                  onClick={() => fileInput.current?.click()}
+                  onClick={() => setShowAttachMenu((v) => !v)}
                   className="shrink-0 rounded-full bg-surface p-2 text-muted hover:text-ink"
-                  title="Joindre un fichier (max 25 Mo)"
-                  aria-label="Joindre un fichier"
+                  title="Joindre ou créer"
+                  aria-label="Joindre un fichier ou créer un sondage"
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <path d="M12 5v14 M5 12h14" />
@@ -1348,6 +1472,16 @@ export default function Conversation() {
           status={online[profileTarget.id]?.status ?? 'hors_ligne'}
           onMessage={() => openMessageTo(profileTarget)}
           onClose={() => setShowProfile(false)}
+        />
+      )}
+
+      {showPollModal && dmId && (
+        <PollModal
+          dmId={dmId}
+          onClose={() => setShowPollModal(false)}
+          onPublished={(mid) => {
+            window.setTimeout(() => jumpTo(mid), 300);
+          }}
         />
       )}
 

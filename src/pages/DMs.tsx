@@ -9,6 +9,7 @@ import Modal from '../components/Modal';
 import ProfileCard from '../components/ProfileCard';
 import { formatShort } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
+import { openDirectDM } from '../lib/dm';
 import type { DM, Friendship, Message, Profile } from '../lib/types';
 
 export interface DMView {
@@ -274,9 +275,12 @@ export default function DMs() {
 
   const openMessageTo = async (profile: Profile) => {
     setProfileTarget(null);
-    const { data, error } = await sb.rpc('create_direct_dm', { p_other: profile.id });
-    if (!error && data) navigate(`/app/dm/${data as string}`);
-    else flash('Ouverture de la conversation impossible.');
+    try {
+      const dmId = await openDirectDM(sb, me, profile.id);
+      navigate(`/app/dm/${dmId}`);
+    } catch {
+      flash('Ouverture de la conversation impossible.');
+    }
   };
 
   const startPress = (v: DMView) => {
