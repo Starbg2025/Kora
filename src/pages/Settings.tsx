@@ -19,6 +19,16 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'apropos', label: 'À propos' },
 ];
 
+const TAB_ICONS: Record<TabId, string> = {
+  compte: '👤',
+  profil: '📝',
+  apparence: '🎨',
+  notifications: '🔔',
+  confidentialite: '🔒',
+  securite: '🛡️',
+  apropos: 'ℹ️',
+};
+
 const inputCls =
   'w-full rounded-xl border border-line bg-surface2 px-4 py-2.5 text-sm text-ink outline-none focus:border-primary';
 
@@ -593,26 +603,36 @@ export default function Settings() {
 
   return (
     <div className="flex h-full">
-      <aside className={`${mobileOpen ? 'hidden md:block' : 'block'} w-full shrink-0 border-r border-line bg-surface p-4 md:w-64`}>
+      <aside className={`${mobileOpen ? 'hidden md:block' : 'block'} w-full shrink-0 border-r border-line bg-base p-4 md:w-64 md:bg-surface`}>
         <h1 className="px-2 py-2 text-lg font-extrabold">Paramètres</h1>
-        <nav className="mt-2 space-y-1">
-          {TABS.map((t) => (
+        <nav className="mt-2 space-y-1 md:space-y-1">
+          {TABS.map((t, i) => (
             <button
               key={t.id}
               onClick={() => select(t.id)}
-              className={`block w-full rounded-xl px-3 py-2 text-left text-sm font-medium ${
-                tab === t.id ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2/60 hover:text-ink'
-              }`}
+              className={`flex w-full items-center gap-3 px-3 py-3 text-left text-[15px] md:rounded-xl md:py-2 md:text-sm md:font-medium ${
+                tab === t.id ? 'font-semibold md:bg-surface2 md:text-ink' : 'text-ink md:font-medium md:text-muted md:hover:bg-surface2/60 md:hover:text-ink'
+              } ${i > 0 ? 'border-t border-line/60 md:border-0' : ''}`}
             >
-              {t.label}
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">
+                {TAB_ICONS[t.id]}
+              </span>
+              <span className="flex-1">{t.label}</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
             </button>
           ))}
         </nav>
         <button
           onClick={signOut}
-          className="mt-6 w-full rounded-xl bg-surface2 px-3 py-2 text-left text-sm font-medium text-danger hover:bg-line"
+          className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-danger hover:bg-surface2/60 md:mt-6 md:py-2 md:text-sm md:font-medium"
         >
-          Se déconnecter
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">🚪</span>
+          <span className="flex-1">Se déconnecter</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
         </button>
       </aside>
       <section className={`${mobileOpen ? 'block' : 'hidden md:block'} min-w-0 flex-1 overflow-y-auto bg-base p-4 md:p-8`}>

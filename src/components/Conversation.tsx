@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
+import EmojiPicker from '../components/EmojiPicker';
+import VoiceRecorder from '../components/VoiceRecorder';
+import MessageActionSheet from '../components/MessageActionSheet';
+import ProfileCard from '../components/ProfileCard';
 import { formatDay, formatFull, formatTime } from '../lib/format';
-import { STATUS_LABELS, type DM, type DMMemberRow, type Message, type Profile } from '../lib/types';
+import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
+import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessageReaction, type Profile } from '../lib/types';
 
 interface Member extends DMMemberRow {
   profiles: Profile | null;
@@ -22,6 +27,9 @@ function presenceLabel(status: string): string {
   if (status === 'invisible' || status === 'hors_ligne') return 'Hors ligne';
   return STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status;
 }
+
+const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(name);
+const isAudioName = (name: string) => /\.(mp3|wav|ogg|oga|m4a|webm|opus)$/i.test(name);
 
 /** Affiche une pièce jointe via URL signée (jamais d'URL publique devinable). */
 function Attachment({ path, name }: { path: string; name: string }) {
@@ -44,14 +52,21 @@ function Attachment({ path, name }: { path: string; name: string }) {
     };
   }, [path, sb]);
 
-  const isImage = /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(name);
   if (failed) return <p className="mt-1 text-xs text-muted">Pièce jointe indisponible.</p>;
   if (!url) return <p className="mt-1 text-xs text-muted">Chargement de la pièce jointe…</p>;
-  if (isImage) {
+  if (isImageName(name)) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="mt-2 block max-w-md">
         <img src={url} alt={name} className="max-h-72 rounded-xl border border-line" loading="lazy" />
       </a>
+    );
+  }
+  if (isAudioName(name)) {
+    return (
+      <div className="mt-2 max-w-md">
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <audio src={url} controls preload="metadata" className="w-full" />
+      </div>
     );
   }
   return (
@@ -70,6 +85,43 @@ function Attachment({ path, name }: { path: string; name: string }) {
   );
 }
 
+function MediaThumb({ path, name }: { path: string; name: string }) {
+  const { sb } = useAuth();
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    sb.storage.from('pieces-jointes').createSignedUrl(path, 3600).then(({ data, error }) => {
+      if (alive && !error && data) setUrl(data.signedUrl);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [path, sb]);
+  if (!url) return <div className="aspect-square animate-pulse rounded-xl bg-surface2" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl">
+      <img src={url} alt={name} className="aspect-square w-full object-cover" loading="lazy" />
+    </a>
+  );
+}
+
+const phoneIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+  </svg>
+);
+const videoIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m22 8-6 4 6 4V8Z" />
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+  </svg>
+);
+const searchIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+  </svg>
+);
+
 export default function Conversation() {
   const { dmId } = useParams<{ dmId: string }>();
   const { sb, user, settings, saveSettings } = useAuth();
@@ -79,6 +131,11 @@ export default function Conversation() {
   const [dm, setDm] = useState<DM | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  const [reactionsReady, setReactionsReady] = useState(false);
+  const [pins, setPins] = useState<MessagePin[]>([]);
+  const [pinsReady, setPinsReady] = useState(false);
+  const [friendship, setFriendship] = useState<Friendship | null>(null);
   const [loading, setLoading] = useState(true);
   const [notMember, setNotMember] = useState(false);
 
@@ -90,6 +147,8 @@ export default function Conversation() {
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [recording, setRecording] = useState(false);
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQ, setSearchQ] = useState('');
@@ -98,7 +157,13 @@ export default function Conversation() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const [showPanel, setShowPanel] = useState(false);
+  const [panelTab, setPanelTab] = useState<'membres' | 'medias' | 'epingles'>('membres');
   const [showMenu, setShowMenu] = useState(false);
+  const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
+  const [toast, setToast] = useState('');
+  const [convPinned, setConvPinned] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -106,8 +171,11 @@ export default function Conversation() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const lastMark = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
+  const pressTimer = useRef<number | null>(null);
+  const toastTimer = useRef<number | null>(null);
 
   const me = user?.id ?? '';
   const muted = settings?.dm_mute.includes(dmId ?? '') ?? false;
@@ -116,6 +184,13 @@ export default function Conversation() {
     if (m.profiles) profilesById.set(m.user_id, m.profiles);
   }
   const friend = !dm?.is_group ? members.find((m) => m.user_id !== me)?.profiles ?? null : null;
+  const pinnedIds = useMemo(() => new Set(pins.map((x) => x.message_id)), [pins]);
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(''), 3200);
+  };
 
   const nearBottom = () => {
     const el = scrollRef.current;
@@ -153,10 +228,49 @@ export default function Conversation() {
       return;
     }
     const { data: msgRows } = await sb.from('messages').select('*').eq('dm_id', dmId).order('created_at', { ascending: true }).limit(500);
+    const msgs = (msgRows ?? []) as Message[];
+    const ids = msgs.map((m) => m.id);
+
+    // Réactions + épinglés (nécessitent la migration 20261023_reactions_pins.sql)
+    let rReady = false;
+    let pReady = false;
+    if (ids.length > 0) {
+      const { data: rRows, error: rErr } = await sb.from('message_reactions').select('*').in('message_id', ids);
+      if (!rErr) {
+        rReady = true;
+        setReactions((rRows ?? []) as MessageReaction[]);
+      }
+      const { data: pRows, error: pErr } = await sb.from('message_pins').select('*').in('message_id', ids);
+      if (!pErr) {
+        pReady = true;
+        setPins((pRows ?? []) as MessagePin[]);
+      }
+    } else {
+      rReady = true;
+      pReady = true;
+    }
+    setReactionsReady(rReady);
+    setPinsReady(pReady);
+
+    // Amitié éventuelle (pour la fiche profil « Ami(e) depuis le »)
+    const other = mems.find((m) => m.user_id !== me);
+    if (other && !(dmData as DM).is_group) {
+      const { data: fs } = await sb
+        .from('friendships')
+        .select('*')
+        .or(`and(requester_id.eq.${me},addressee_id.eq.${other.user_id}),and(requester_id.eq.${other.user_id},addressee_id.eq.${me})`)
+        .eq('status', 'accepted')
+        .maybeSingle();
+      setFriendship((fs as Friendship) ?? null);
+    } else {
+      setFriendship(null);
+    }
+
     setDm(dmData as DM);
     setGroupName((dmData as DM).name ?? '');
     setMembers(mems);
-    setMessages((msgRows ?? []) as Message[]);
+    setMessages(msgs);
+    setConvPinned(getPinnedDMs().includes(dmId));
     setLoading(false);
     requestAnimationFrame(() => scrollToBottom(false));
     markRead();
@@ -170,11 +284,14 @@ export default function Conversation() {
     setSearchQ('');
     setSearchResults([]);
     setShowPanel(false);
+    setPanelTab('membres');
     setNewBelow(false);
+    setSheetMsg(null);
+    setShowProfile(false);
     load();
   }, [dmId, load]);
 
-  // Temps réel sur les messages du DM
+  // Temps réel : messages + réactions + épinglés
   useEffect(() => {
     if (!dmId || !me) return;
     const ch = sb
@@ -196,6 +313,33 @@ export default function Conversation() {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `dm_id=eq.${dmId}` }, (payload) => {
         const old = payload.old as { id: string };
         setMessages((prev) => prev.filter((x) => x.id !== old.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (payload) => {
+        const row = (payload.new ?? payload.old) as MessageReaction;
+        if (!row?.message_id) return;
+        setMessages((prev) => {
+          const known = new Set(prev.map((m) => m.id));
+          if (!known.has(row.message_id)) return prev;
+          if (payload.eventType === 'INSERT') {
+            setReactions((rs) => (rs.some((r) => r.message_id === row.message_id && r.user_id === row.user_id && r.emoji === row.emoji) ? rs : [...rs, row as MessageReaction]));
+          } else if (payload.eventType === 'DELETE') {
+            setReactions((rs) => rs.filter((r) => !(r.message_id === row.message_id && r.user_id === row.user_id && r.emoji === row.emoji)));
+          }
+          return prev;
+        });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_pins' }, (payload) => {
+        const row = (payload.new ?? payload.old) as MessagePin;
+        if (!row?.message_id) return;
+        setMessages((prev) => {
+          if (!prev.some((m) => m.id === row.message_id)) return prev;
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            setPins((ps) => (ps.some((x) => x.message_id === row.message_id) ? ps : [...ps, row as MessagePin]));
+          } else if (payload.eventType === 'DELETE') {
+            setPins((ps) => ps.filter((x) => x.message_id !== row.message_id));
+          }
+          return prev;
+        });
       })
       .subscribe();
     return () => {
@@ -248,20 +392,95 @@ export default function Conversation() {
     }
   };
 
+  const insertEmoji = (emoji: string) => {
+    const ta = composerRef.current;
+    if (!ta) {
+      setDraft((d) => d + emoji);
+      return;
+    }
+    const start = ta.selectionStart ?? draft.length;
+    const end = ta.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + emoji + draft.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = start + emoji.length;
+    });
+  };
+
   const saveEdit = async (m: Message) => {
     const content = editText.trim();
     if (!content) return;
     const { error } = await sb.from('messages').update({ content, edited_at: new Date().toISOString() }).eq('id', m.id);
-    if (!error) {
-      setEditingId(null);
-    }
+    if (!error) setEditingId(null);
   };
 
   const doDelete = async (m: Message) => {
     setDeleteTarget(null);
+    setSheetMsg(null);
     await sb.from('messages').delete().eq('id', m.id);
     if (m.attachment_path) {
       await sb.storage.from('pieces-jointes').remove([m.attachment_path]).catch(() => {});
+    }
+  };
+
+  const copyText = async (m: Message) => {
+    try {
+      await navigator.clipboard.writeText(m.content);
+      flash('Texte copié.');
+    } catch {
+      flash('Copie impossible.');
+    }
+    setSheetMsg(null);
+  };
+
+  const toggleReaction = async (msgId: string, emoji: string) => {
+    setSheetMsg(null);
+    if (!reactionsReady) {
+      flash('Réactions indisponibles : exécute la migration SQL « 20261023_reactions_pins.sql » dans Supabase.');
+      return;
+    }
+    const mine = reactions.some((r) => r.message_id === msgId && r.user_id === me && r.emoji === emoji);
+    // Optimiste
+    setReactions((rs) =>
+      mine
+        ? rs.filter((r) => !(r.message_id === msgId && r.user_id === me && r.emoji === emoji))
+        : [...rs, { message_id: msgId, user_id: me, emoji, created_at: new Date().toISOString() }],
+    );
+    const { error } = mine
+      ? await sb.from('message_reactions').delete().eq('message_id', msgId).eq('user_id', me).eq('emoji', emoji)
+      : await sb.from('message_reactions').insert({ message_id: msgId, user_id: me, emoji });
+    if (error) {
+      // Annule l'optimiste
+      setReactions((rs) =>
+        mine
+          ? [...rs, { message_id: msgId, user_id: me, emoji, created_at: new Date().toISOString() }]
+          : rs.filter((r) => !(r.message_id === msgId && r.user_id === me && r.emoji === emoji)),
+      );
+      flash('Réaction impossible pour le moment.');
+    }
+  };
+
+  const togglePin = async (m: Message) => {
+    setSheetMsg(null);
+    if (!pinsReady) {
+      flash('Épinglés indisponibles : exécute la migration SQL « 20261023_reactions_pins.sql » dans Supabase.');
+      return;
+    }
+    const isPinned = pinnedIds.has(m.id);
+    setPins((ps) =>
+      isPinned ? ps.filter((x) => x.message_id !== m.id) : [...ps, { message_id: m.id, pinned_by: me, pinned_at: new Date().toISOString() }],
+    );
+    const { error } = isPinned
+      ? await sb.from('message_pins').delete().eq('message_id', m.id)
+      : await sb.from('message_pins').insert({ message_id: m.id, pinned_by: me });
+    if (error) {
+      setPins((ps) =>
+        isPinned ? [...ps, { message_id: m.id, pinned_by: me, pinned_at: new Date().toISOString() }] : ps.filter((x) => x.message_id !== m.id),
+      );
+      flash('Épinglage impossible pour le moment.');
+    } else {
+      flash(isPinned ? 'Message désépinglé.' : 'Message épinglé.');
     }
   };
 
@@ -296,6 +515,28 @@ export default function Conversation() {
       ? settings.dm_mute.filter((id) => id !== dmId)
       : [...settings.dm_mute, dmId];
     await saveSettings({ dm_mute: list });
+    flash(settings.dm_mute.includes(dmId) ? 'Notifications réactivées.' : 'Conversation en sourdine.');
+  };
+
+  const toggleConvPin = () => {
+    if (!dmId) return;
+    const cur = getPinnedDMs();
+    const next = cur.includes(dmId) ? cur.filter((id) => id !== dmId) : [dmId, ...cur];
+    setPinnedDMs(next);
+    setConvPinned(next.includes(dmId));
+    flash(next.includes(dmId) ? 'Conversation épinglée en haut.' : 'Conversation désépinglée.');
+  };
+
+  const markAsRead = async () => {
+    lastMark.current = 0;
+    await markRead();
+    flash('Conversation marquée comme lue.');
+  };
+
+  const closeDM = async () => {
+    if (!dmId) return;
+    await sb.from('dm_members').delete().eq('dm_id', dmId).eq('user_id', me);
+    navigate('/app/dm');
   };
 
   const saveGroupName = async () => {
@@ -317,6 +558,23 @@ export default function Conversation() {
     if (!dmId) return;
     await sb.from('dm_members').delete().eq('dm_id', dmId).eq('user_id', me);
     navigate('/app/dm');
+  };
+
+  const openMessageTo = async (profile: Profile) => {
+    setShowProfile(false);
+    setSheetMsg(null);
+    const { data, error } = await sb.rpc('create_direct_dm', { p_other: profile.id });
+    if (!error && data) navigate(`/app/dm/${data as string}`);
+    else flash('Ouverture de la conversation impossible.');
+  };
+
+  // Appui long (mobile) + clic droit (bureau) sur un message
+  const startPress = (m: Message) => {
+    if (pressTimer.current) window.clearTimeout(pressTimer.current);
+    pressTimer.current = window.setTimeout(() => setSheetMsg(m), 550);
+  };
+  const endPress = () => {
+    if (pressTimer.current) window.clearTimeout(pressTimer.current);
   };
 
   if (loading) {
@@ -347,6 +605,33 @@ export default function Conversation() {
 
   const replyTarget = (id: string | null) => messages.find((m) => m.id === id) ?? null;
 
+  const reactionsByMsg = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
+  for (const r of reactions) {
+    const arr = reactionsByMsg.get(r.message_id) ?? [];
+    const found = arr.find((x) => x.emoji === r.emoji);
+    if (found) {
+      found.count += 1;
+      if (r.user_id === me) found.mine = true;
+    } else {
+      arr.push({ emoji: r.emoji, count: 1, mine: r.user_id === me });
+    }
+    reactionsByMsg.set(r.message_id, arr);
+  }
+
+  const mediaMessages = messages.filter((m) => m.attachment_path && isImageName(m.attachment_name ?? ''));
+  const fileMessages = messages.filter((m) => m.attachment_path && !isImageName(m.attachment_name ?? ''));
+  const pinnedMessages = messages.filter((m) => pinnedIds.has(m.id));
+
+  const headerClick = () => {
+    if (dm.is_group) {
+      setPanelTab('membres');
+      setShowPanel(true);
+    } else if (friend) {
+      setProfileTarget(friend);
+      setShowProfile(true);
+    }
+  };
+
   let lastDay = '';
   let lastAuthor = '';
   let lastTs = 0;
@@ -354,9 +639,9 @@ export default function Conversation() {
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* En-tête */}
-        <div className="border-b border-line px-3 py-3 md:px-5">
-          <div className="flex items-center gap-2 md:gap-3">
+        {/* En-tête façon Discord */}
+        <div className="border-b border-line px-2 py-2 md:px-4 md:py-3">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => navigate('/app/dm')}
               className="shrink-0 rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink md:hidden"
@@ -367,51 +652,70 @@ export default function Conversation() {
                 <path d="M19 12H5 M12 19l-7-7 7-7" />
               </svg>
             </button>
-            {dm.is_group ? (
-              <Avatar profile={null} size={40} />
-            ) : (
-              <Avatar profile={friend} size={40} status={friendStatus} showStatus />
-            )}
-            <div className="min-w-0 flex-1">
-              {renaming ? (
-                <div className="flex gap-2">
-                  <input
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    className="w-full max-w-xs rounded-lg border border-line bg-surface2 px-3 py-1 text-sm outline-none focus:border-primary"
-                    maxLength={60}
-                  />
-                  <button onClick={saveGroupName} className="rounded-lg bg-primary px-3 py-1 text-sm font-bold text-white">OK</button>
-                  <button onClick={() => setRenaming(false)} className="rounded-lg bg-surface2 px-3 py-1 text-sm hover:bg-line">Annuler</button>
-                </div>
+            <button onClick={headerClick} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1 text-left hover:bg-surface2/60" title="Voir le profil">
+              {dm.is_group ? (
+                <Avatar profile={null} size={40} />
               ) : (
-                <>
-                  <p className="truncate font-bold">{headerTitle}</p>
-                  <p className="truncate text-xs text-muted">{headerSub}</p>
-                </>
+                <Avatar profile={friend} size={40} status={friendStatus} showStatus />
               )}
-            </div>
-            <div className="hidden shrink-0 items-center gap-1 md:flex">
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1">
+                  <span className="truncate font-extrabold">{headerTitle}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </span>
+                <span className="block truncate text-xs text-muted">{headerSub}</span>
+              </span>
+            </button>
+            <button
+              onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
+              className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
+              title="Appel vocal"
+              aria-label="Appel vocal"
+            >
+              {phoneIcon}
+            </button>
+            <button
+              onClick={() => flash('Les appels vidéo arrivent avec la prochaine mise à jour de Kora.')}
+              className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
+              title="Appel vidéo"
+              aria-label="Appel vidéo"
+            >
+              {videoIcon}
+            </button>
             <button
               onClick={() => setShowSearch((s) => !s)}
-              className={`rounded-lg px-3 py-1.5 text-sm ${showSearch ? 'bg-surface2 text-ink' : 'text-muted hover:text-ink'}`}
+              className={`shrink-0 rounded-lg p-2.5 ${showSearch ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2 hover:text-ink'}`}
               title="Rechercher dans la conversation"
+              aria-label="Rechercher"
             >
-              Rechercher
+              {searchIcon}
             </button>
-            <button
-              onClick={toggleMute}
-              className={`rounded-lg px-3 py-1.5 text-sm ${muted ? 'bg-surface2 text-accent' : 'text-muted hover:text-ink'}`}
-              title={muted ? 'Réactiver les notifications' : 'Couper les notifications'}
-            >
-              {muted ? 'Notifications coupées' : 'Notifications'}
-            </button>
-            <button
-              onClick={() => setShowPanel((s) => !s)}
-              className={`rounded-lg px-3 py-1.5 text-sm ${showPanel ? 'bg-surface2 text-ink' : 'text-muted hover:text-ink'}`}
-            >
-              {dm.is_group ? 'Membres' : 'Profil'}
-            </button>
+            <div className="relative hidden shrink-0 md:block">
+              <button
+                onClick={() => setShowMenu((s) => !s)}
+                className="rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
+                aria-label="Options de la conversation"
+                title="Options"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
+                </svg>
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 z-30 mt-1 w-60 rounded-xl border border-line bg-surface p-1 shadow-2xl">
+                  <button onClick={() => { markAsRead(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">Marquer comme lu</button>
+                  <button onClick={() => { toggleMute(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">{muted ? 'Réactiver les notifications' : 'Rendre cette conversation muette'}</button>
+                  <button onClick={() => { toggleConvPin(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">{convPinned ? 'Désépingler la conversation' : 'Épingler la conversation'}</button>
+                  <button onClick={() => { setPanelTab('epingles'); setShowPanel(true); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">Messages épinglés</button>
+                  {dm.is_group ? (
+                    <button onClick={() => { setConfirmLeave(true); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-surface2">Quitter le groupe</button>
+                  ) : (
+                    <button onClick={() => { closeDM(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-surface2">Fermer le MP</button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="relative shrink-0 md:hidden">
               <button
@@ -425,52 +729,42 @@ export default function Conversation() {
                 </svg>
               </button>
               {showMenu && (
-                <div className="absolute right-0 z-30 mt-1 w-52 rounded-xl border border-line bg-surface p-1 shadow-2xl">
-                  <button
-                    onClick={() => { setShowSearch((s) => !s); setShowMenu(false); }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
-                  >
-                    Rechercher
-                  </button>
-                  <button
-                    onClick={() => { toggleMute(); setShowMenu(false); }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
-                  >
-                    {muted ? 'Réactiver les notifications' : 'Couper les notifications'}
-                  </button>
-                  <button
-                    onClick={() => { setShowPanel((s) => !s); setShowMenu(false); }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
-                  >
-                    {dm.is_group ? 'Membres du groupe' : 'Voir le profil'}
-                  </button>
+                <div className="absolute right-0 z-30 mt-1 w-60 rounded-xl border border-line bg-surface p-1 shadow-2xl">
+                  <button onClick={() => { markAsRead(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">Marquer comme lu</button>
+                  <button onClick={() => { toggleMute(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">{muted ? 'Réactiver les notifications' : 'Rendre cette conversation muette'}</button>
+                  <button onClick={() => { toggleConvPin(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">{convPinned ? 'Désépingler la conversation' : 'Épingler la conversation'}</button>
+                  <button onClick={() => { setPanelTab('epingles'); setShowPanel(true); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2">Messages épinglés</button>
+                  {dm.is_group ? (
+                    <button onClick={() => { setConfirmLeave(true); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-surface2">Quitter le groupe</button>
+                  ) : (
+                    <button onClick={() => { closeDM(); setShowMenu(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-surface2">Fermer le MP</button>
+                  )}
                 </div>
               )}
             </div>
           </div>
           {showSearch && (
-            <div className="mt-3">
-              <form onSubmit={runSearch} className="flex gap-2">
+            <div className="mt-2 px-1">
+              <form onSubmit={runSearch} className="flex items-center gap-2 rounded-xl border border-primary bg-surface2 px-3 py-2">
+                <span className="text-muted">{searchIcon}</span>
                 <input
                   value={searchQ}
                   onChange={(e) => setSearchQ(e.target.value)}
-                  placeholder="Rechercher un message…"
-                  className="w-full rounded-xl border border-line bg-surface2 px-4 py-2 text-sm outline-none focus:border-primary"
+                  placeholder={`Rechercher dans @${dm.is_group ? (dm.name || 'groupe') : (friend?.username || '')}`}
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+                  autoFocus
                 />
-                <button type="submit" disabled={searching} className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-                  {searching ? '…' : 'OK'}
-                </button>
+                {searchQ && (
+                  <button type="button" onClick={() => { setSearchQ(''); setSearchResults([]); }} className="text-muted hover:text-ink" aria-label="Effacer">✕</button>
+                )}
               </form>
+              {searching && <p className="mt-2 px-1 text-sm text-muted">Recherche…</p>}
               {searchResults.length > 0 && (
                 <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-line bg-surface">
                   {searchResults.map((m) => {
                     const a = profilesById.get(m.author_id);
                     return (
-                      <button
-                        key={m.id}
-                        onClick={() => jumpTo(m.id)}
-                        className="block w-full px-4 py-2 text-left text-sm hover:bg-surface2"
-                      >
+                      <button key={m.id} onClick={() => jumpTo(m.id)} className="block w-full px-4 py-2 text-left text-sm hover:bg-surface2">
                         <span className="font-semibold">{a?.display_name || a?.username || 'Inconnu'}</span>
                         <span className="text-muted"> — {m.content.slice(0, 80) || (m.attachment_name ?? '')}</span>
                       </button>
@@ -479,14 +773,14 @@ export default function Conversation() {
                 </div>
               )}
               {searchQ.trim() && !searching && searchResults.length === 0 && (
-                <p className="mt-2 text-sm text-muted">Aucun message trouvé.</p>
+                <p className="mt-2 px-1 text-sm text-muted">Aucun message trouvé.</p>
               )}
             </div>
           )}
         </div>
 
         {/* Messages */}
-        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-5 py-4">
+        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-3 py-4 md:px-5">
           {messages.length === 0 ? (
             <EmptyState
               title="Aucun message pour l’instant"
@@ -505,6 +799,8 @@ export default function Conversation() {
               lastTs = ts;
               const replied = m.reply_to ? replyTarget(m.reply_to) : null;
               const repliedAuthor = replied ? profilesById.get(replied.author_id) : null;
+              const rcts = reactionsByMsg.get(m.id) ?? [];
+              const isPinned = pinnedIds.has(m.id);
 
               return (
                 <div key={m.id}>
@@ -519,12 +815,21 @@ export default function Conversation() {
                     ref={(el) => {
                       msgRefs.current[m.id] = el;
                     }}
-                    className={`msg group flex gap-3 rounded-lg px-2 py-1 ${compact ? 'mt-0.5' : 'mt-3'} ${
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setSheetMsg(m);
+                    }}
+                    onTouchStart={() => startPress(m)}
+                    onTouchEnd={endPress}
+                    onTouchMove={endPress}
+                    className={`msg group flex select-none gap-3 rounded-lg px-2 py-1 ${compact ? 'mt-0.5' : 'mt-3'} ${
                       highlightId === m.id ? 'bg-accent/15' : 'hover:bg-surface/60'
                     }`}
                   >
                     {!compact ? (
-                      <Avatar profile={author ?? null} size={38} />
+                      <button onClick={() => { if (author) { setProfileTarget(author); setShowProfile(true); } }} className="shrink-0 self-start" aria-label="Voir le profil">
+                        <Avatar profile={author ?? null} size={38} />
+                      </button>
                     ) : (
                       <span className="w-[38px] shrink-0 pt-0.5 text-center text-[10px] text-muted opacity-0 group-hover:opacity-100">
                         {formatTime(m.created_at)}
@@ -533,9 +838,13 @@ export default function Conversation() {
                     <div className="min-w-0 flex-1">
                       {!compact && (
                         <p className="flex flex-wrap items-baseline gap-x-2">
-                          <span className={`text-sm font-bold ${isMe ? 'text-primary' : ''}`}>
+                          <button
+                            onClick={() => { if (author) { setProfileTarget(author); setShowProfile(true); } }}
+                            className={`text-sm font-bold hover:underline ${isMe ? 'text-primary' : ''}`}
+                          >
                             {author?.display_name || author?.username || 'Inconnu'}
-                          </span>
+                          </button>
+                          {isPinned && <span title="Message épinglé">📌</span>}
                           <span className="text-[11px] text-muted" title={formatFull(m.created_at)}>
                             {formatTime(m.created_at)}
                           </span>
@@ -574,43 +883,51 @@ export default function Conversation() {
                           {m.edited_at && <span className="ml-2 text-[11px] text-muted">(modifié)</span>}
                         </>
                       )}
+                      {rcts.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {rcts.map((r) => (
+                            <button
+                              key={r.emoji}
+                              onClick={() => toggleReaction(m.id, r.emoji)}
+                              className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-sm ${
+                                r.mine ? 'border-primary bg-primary/15' : 'border-line bg-surface2 hover:border-primary/50'
+                              }`}
+                              title="Ajouter / retirer ma réaction"
+                            >
+                              <span>{r.emoji}</span>
+                              <span className={`text-xs font-bold ${r.mine ? 'text-primary' : 'text-muted'}`}>{r.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {isMe && editingId !== m.id && (
-                      <div className="flex shrink-0 items-start gap-1 opacity-0 group-hover:opacity-100">
-                        <button
-                          onClick={() => setReplyTo(m)}
-                          className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                          title="Répondre"
-                        >
-                          Répondre
-                        </button>
-                        <button
-                          onClick={() => { setEditingId(m.id); setEditText(m.content); }}
-                          className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                          title="Modifier"
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(m)}
-                          className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-danger"
-                          title="Supprimer"
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    )}
-                    {!isMe && (
-                      <div className="flex shrink-0 items-start opacity-0 group-hover:opacity-100">
-                        <button
-                          onClick={() => setReplyTo(m)}
-                          className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                          title="Répondre"
-                        >
-                          Répondre
-                        </button>
-                      </div>
-                    )}
+                    <div className="hidden shrink-0 items-start gap-1 group-hover:flex md:flex">
+                      <button
+                        onClick={() => setReplyTo(m)}
+                        className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
+                        title="Répondre"
+                      >
+                        Répondre
+                      </button>
+                      {isMe && editingId !== m.id && (
+                        <>
+                          <button
+                            onClick={() => { setEditingId(m.id); setEditText(m.content); }}
+                            className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
+                            title="Modifier"
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(m)}
+                            className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-danger"
+                            title="Supprimer"
+                          >
+                            Supprimer
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -632,124 +949,284 @@ export default function Conversation() {
           </button>
         )}
 
-        {/* Compositeur */}
-        <div className="border-t border-line px-5 py-3">
-          {replyTo && (
-            <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
-              <p className="truncate text-muted">
-                Réponse à <strong className="text-ink">{profilesById.get(replyTo.author_id)?.display_name || 'Inconnu'}</strong> : {replyTo.content.slice(0, 80) || (replyTo.attachment_name ?? '')}
-              </p>
-              <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse">×</button>
-            </div>
-          )}
-          {file && (
-            <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
-              <p className="truncate">Fichier : <strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} Ko)</p>
-              <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier">×</button>
-            </div>
-          )}
-          <div className="flex items-end gap-2">
-            <button
-              onClick={() => fileInput.current?.click()}
-              className="mb-1 rounded-xl bg-surface2 p-2.5 text-muted hover:bg-line hover:text-ink"
-              title="Joindre un fichier (max 25 Mo)"
-              aria-label="Joindre un fichier"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            <textarea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-                setTyping(dmId ?? null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              rows={1}
-              placeholder={`Envoyer un message ${dm.is_group ? 'au groupe' : `à ${friend?.display_name || friend?.username || ''}`}`}
-              className="max-h-40 flex-1 resize-none rounded-xl border border-line bg-surface2 px-4 py-2.5 text-[15px] outline-none focus:border-primary"
-              aria-label="Écrire un message"
-            />
-            <button
-              onClick={send}
-              disabled={sending || (!draft.trim() && !file)}
-              className="mb-1 rounded-xl bg-primary px-5 py-2.5 font-bold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {sending ? '…' : 'Envoyer'}
-            </button>
-          </div>
-          {sendError && <p className="mt-1 text-xs text-danger">{sendError}</p>}
-        </div>
-      </div>
-
-      {/* Panneau droit contextuel */}
-      {showPanel && (
-        <aside className="fixed inset-y-0 right-0 z-40 w-72 border-l border-line bg-surface p-4 shadow-2xl md:static md:z-auto md:shrink-0 md:shadow-none">
-          {dm.is_group ? (
+        {/* Compositeur façon Discord */}
+        <div className="border-t border-line px-3 py-2.5 md:px-5 md:py-3">
+          {recording ? (
+            <VoiceRecorder onDone={(f) => { setRecording(false); setFile(f); }} onCancel={() => setRecording(false)} />
+          ) : (
             <>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-bold">Membres</h2>
-                {dm.created_by === me && !renaming && (
-                  <button onClick={() => setRenaming(true)} className="text-xs text-primary hover:underline">
-                    Renommer
+              {replyTo && (
+                <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
+                  <p className="truncate text-muted">
+                    Réponse à <strong className="text-ink">{profilesById.get(replyTo.author_id)?.display_name || 'Inconnu'}</strong> : {replyTo.content.slice(0, 80) || (replyTo.attachment_name ?? '')}
+                  </p>
+                  <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse">✕</button>
+                </div>
+              )}
+              {file && (
+                <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
+                  <p className="truncate">
+                    {isAudioName(file.name) ? '🎤 Message vocal prêt' : 'Fichier'} : <strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} Ko)
+                  </p>
+                  <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier">✕</button>
+                </div>
+              )}
+              <div className="flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
+                <button
+                  onClick={() => fileInput.current?.click()}
+                  className="shrink-0 rounded-full bg-surface p-2 text-muted hover:text-ink"
+                  title="Joindre un fichier (max 25 Mo)"
+                  aria-label="Joindre un fichier"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M12 5v14 M5 12h14" />
+                  </svg>
+                </button>
+                <input ref={fileInput} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                <textarea
+                  ref={composerRef}
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+                    setTyping(dmId ?? null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                  rows={1}
+                  placeholder={`Envoyer un message ${dm.is_group ? 'au groupe' : `à ${friend?.display_name || friend?.username || ''}`}`}
+                  className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[15px] outline-none placeholder:text-muted"
+                  aria-label="Écrire un message"
+                />
+                <button
+                  onClick={() => setShowEmoji(true)}
+                  className="shrink-0 rounded-full p-2 text-muted hover:bg-surface hover:text-ink"
+                  title="Émojis"
+                  aria-label="Ouvrir le sélecteur d’émojis"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                    <line x1="9" y1="9" x2="9.01" y2="9" />
+                    <line x1="15" y1="9" x2="15.01" y2="9" />
+                  </svg>
+                </button>
+                {!draft.trim() && !file ? (
+                  <button
+                    onClick={() => setRecording(true)}
+                    className="shrink-0 rounded-full p-2 text-muted hover:bg-surface hover:text-ink"
+                    title="Message vocal"
+                    aria-label="Enregistrer un message vocal"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="2" width="6" height="12" rx="3" />
+                      <path d="M5 10a7 7 0 0 0 14 0 M12 19v3" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={send}
+                    disabled={sending}
+                    className="shrink-0 rounded-full bg-primary p-2.5 text-white hover:opacity-90 disabled:opacity-50"
+                    title="Envoyer"
+                    aria-label="Envoyer le message"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m22 2-7 20-4-9-9-4z M22 2 11 13" />
+                    </svg>
                   </button>
                 )}
               </div>
+              {sendError && <p className="mt-1 text-xs text-danger">{sendError}</p>}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Panneau droit : Membres / Médias / Épinglés */}
+      {showPanel && (
+        <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-line bg-surface shadow-2xl md:static md:z-auto md:w-80 md:shrink-0 md:shadow-none">
+          <div className="flex items-center gap-2 border-b border-line p-4">
+            <button onClick={() => setShowPanel(false)} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:hidden" aria-label="Fermer">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5 M12 19l-7-7 7-7" /></svg>
+            </button>
+            {dm.is_group ? <Avatar profile={null} size={40} /> : <Avatar profile={friend} size={40} status={friendStatus} showStatus />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-bold">{headerTitle}</p>
+              <p className="truncate text-xs text-muted">{headerSub}</p>
+            </div>
+            <button onClick={() => setShowPanel(false)} className="hidden rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:block" aria-label="Fermer">✕</button>
+          </div>
+          <div className="flex border-b border-line">
+            {(
+              [
+                ['membres', 'Membres'],
+                ['medias', 'Contenu multimédia'],
+                ['epingles', 'Messages épinglés'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setPanelTab(id)}
+                className={`flex-1 border-b-2 px-2 py-2.5 text-xs font-bold sm:text-sm ${
+                  panelTab === id ? 'border-primary text-primary' : 'border-transparent text-muted hover:text-ink'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {panelTab === 'membres' && (
               <div className="space-y-1">
+                {dm.is_group && dm.created_by === me && !renaming && (
+                  <button onClick={() => setRenaming(true)} className="mb-2 text-xs font-bold text-primary hover:underline">
+                    Renommer le groupe
+                  </button>
+                )}
+                {renaming && (
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      value={groupName}
+                      onChange={(e) => setGroupName(e.target.value)}
+                      className="w-full rounded-lg border border-line bg-surface2 px-3 py-1.5 text-sm outline-none focus:border-primary"
+                      maxLength={60}
+                    />
+                    <button onClick={saveGroupName} className="rounded-lg bg-primary px-3 py-1 text-sm font-bold text-white">OK</button>
+                  </div>
+                )}
+                <p className="pb-1 text-xs font-bold uppercase tracking-wide text-muted">
+                  Membres — {members.length}
+                </p>
                 {members.map((m) => {
                   const p = m.profiles;
                   if (!p) return null;
                   const st = online[p.id]?.status ?? 'hors_ligne';
                   return (
-                    <div key={m.user_id} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
-                      <Avatar profile={p} size={32} status={st} showStatus />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{p.display_name || p.username}{m.user_id === me && ' (toi)'}</p>
-                        <p className="text-[11px] text-muted">@{p.username}</p>
-                      </div>
-                      {dm.created_by === me && m.user_id !== me && (
-                        <button onClick={() => removeMember(m.user_id)} className="text-xs text-muted hover:text-danger" title="Retirer du groupe">
+                    <div key={m.user_id} className="flex items-center gap-2.5 rounded-xl px-2 py-2 hover:bg-surface2/60">
+                      <button onClick={() => { setProfileTarget(p); setShowProfile(true); }} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                        <Avatar profile={p} size={36} status={st} showStatus />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{p.display_name || p.username}{m.user_id === me && ' (toi)'}</span>
+                          <span className="block text-[11px] text-muted">@{p.username}</span>
+                        </span>
+                      </button>
+                      {dm.is_group && dm.created_by === me && m.user_id !== me && (
+                        <button onClick={() => removeMember(m.user_id)} className="shrink-0 text-xs text-muted hover:text-danger" title="Retirer du groupe">
                           Retirer
                         </button>
                       )}
                     </div>
                   );
                 })}
-              </div>
-              <button onClick={() => setConfirmLeave(true)} className="mt-4 w-full rounded-xl bg-surface2 px-4 py-2 text-sm font-medium text-danger hover:bg-line">
-                Quitter le groupe
-              </button>
-            </>
-          ) : friend ? (
-            <>
-              <h2 className="mb-3 font-bold">Profil</h2>
-              <div className="flex flex-col items-center text-center">
-                <Avatar profile={friend} size={80} status={friendStatus} showStatus />
-                <p className="mt-2 text-lg font-bold">{friend.display_name || friend.username}</p>
-                <p className="text-sm text-muted">@{friend.username}</p>
-                <p className="mt-1 text-xs text-muted">{presenceLabel(friendStatus)}</p>
-                {activeCustomStatus(friend) && (
-                  <p className="mt-2 rounded-xl bg-surface2 px-3 py-2 text-sm">« {activeCustomStatus(friend)} »</p>
+                {dm.is_group && (
+                  <button onClick={() => setConfirmLeave(true)} className="mt-3 w-full rounded-xl bg-surface2 px-4 py-2.5 text-sm font-bold text-danger hover:bg-line">
+                    Quitter le groupe
+                  </button>
                 )}
-                {friend.bio && <p className="mt-3 whitespace-pre-wrap text-sm text-muted">{friend.bio}</p>}
               </div>
-            </>
-          ) : null}
+            )}
+            {panelTab === 'medias' && (
+              <div>
+                {mediaMessages.length === 0 && fileMessages.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted">Aucun contenu multimédia pour l’instant.</p>
+                ) : (
+                  <>
+                    {mediaMessages.length > 0 && (
+                      <>
+                        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Photos et images</p>
+                        <div className="mb-4 grid grid-cols-3 gap-2">
+                          {mediaMessages.map((m) => (
+                            <MediaThumb key={m.id} path={m.attachment_path!} name={m.attachment_name ?? ''} />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {fileMessages.length > 0 && (
+                      <>
+                        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Fichiers</p>
+                        <div className="space-y-1">
+                          {fileMessages.map((m) => (
+                            <div key={m.id} className="rounded-xl bg-surface2 px-3 py-2">
+                              <Attachment path={m.attachment_path!} name={m.attachment_name ?? 'fichier'} />
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {panelTab === 'epingles' && (
+              <div>
+                {!pinsReady ? (
+                  <p className="py-8 text-center text-sm text-muted">
+                    Épinglés indisponibles : exécute la migration SQL « 20261023_reactions_pins.sql » dans Supabase.
+                  </p>
+                ) : pinnedMessages.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted">
+                    Aucun message épinglé. Fais un appui long sur un message puis « Épingler ».
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {pinnedMessages.map((m) => {
+                      const a = profilesById.get(m.author_id);
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => { setShowPanel(false); jumpTo(m.id); }}
+                          className="block w-full rounded-xl bg-surface2 p-3 text-left hover:bg-line"
+                        >
+                          <p className="text-xs font-bold text-primary">📌 {a?.display_name || a?.username || 'Inconnu'}</p>
+                          <p className="mt-1 line-clamp-3 text-sm">{m.content || (m.attachment_name ?? '')}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </aside>
+      )}
+
+      {showEmoji && <EmojiPicker onPick={(e) => insertEmoji(e)} onClose={() => setShowEmoji(false)} />}
+
+      {sheetMsg && (
+        <MessageActionSheet
+          message={sheetMsg}
+          author={profilesById.get(sheetMsg.author_id) ?? null}
+          isMe={sheetMsg.author_id === me}
+          isPinned={pinnedIds.has(sheetMsg.id)}
+          onReact={(e) => toggleReaction(sheetMsg.id, e)}
+          onReply={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}
+          onCopy={() => copyText(sheetMsg)}
+          onTogglePin={() => togglePin(sheetMsg)}
+          onEdit={() => { setEditingId(sheetMsg.id); setEditText(sheetMsg.content); setSheetMsg(null); }}
+          onDelete={() => setDeleteTarget(sheetMsg)}
+          onProfile={() => {
+            const a = profilesById.get(sheetMsg.author_id);
+            if (a) { setProfileTarget(a); setShowProfile(true); }
+            setSheetMsg(null);
+          }}
+          onClose={() => setSheetMsg(null)}
+        />
+      )}
+
+      {showProfile && profileTarget && (
+        <ProfileCard
+          profile={profileTarget}
+          friendship={profileTarget.id === friend?.id ? friendship : null}
+          status={online[profileTarget.id]?.status ?? 'hors_ligne'}
+          onMessage={() => openMessageTo(profileTarget)}
+          onClose={() => setShowProfile(false)}
+        />
       )}
 
       {deleteTarget && (
@@ -777,6 +1254,12 @@ export default function Conversation() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-base shadow-2xl md:bottom-8">
+          {toast}
+        </div>
       )}
     </div>
   );

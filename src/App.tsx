@@ -12,6 +12,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import VerifyEmail from './pages/VerifyEmail';
 import DMs, { EmptyDM } from './pages/DMs';
+import NewMessage from './pages/NewMessage';
 import Conversation from './components/Conversation';
 import Friends from './pages/Friends';
 import Settings from './pages/Settings';
@@ -91,6 +92,7 @@ export default function App() {
               <Route index element={<Navigate to="/app/dm" replace />} />
               <Route path="dm" element={<DMs />}>
                 <Route index element={<EmptyDM />} />
+                <Route path="nouveau" element={<NewMessage />} />
                 <Route path=":dmId" element={<Conversation />} />
               </Route>
               <Route path="amis" element={<Friends />} />

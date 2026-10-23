@@ -1,7 +1,8 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import Logo from './Logo';
 import Avatar from './Avatar';
+import BottomNav from './BottomNav';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 
@@ -48,11 +49,14 @@ export default function AppShell() {
   const { profile } = useAuth();
   const { online } = usePresence();
   const navigate = useNavigate();
+  const location = useLocation();
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
+  // Sur mobile, la barre du bas disparaît dans une conversation ou le flux « nouveau message »
+  const hideBottomNav = /^\/app\/dm\/.+/.test(location.pathname);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-base text-ink">
-      <nav className="flex w-[72px] shrink-0 flex-col items-center gap-3 bg-surface py-3" aria-label="Navigation principale">
+      <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-3 bg-surface py-3 md:flex" aria-label="Navigation principale">
         <button onClick={() => navigate('/')} title="Kora — accueil" aria-label="Kora — accueil">
           <Logo size={48} />
         </button>
@@ -70,9 +74,10 @@ export default function AppShell() {
           <Avatar profile={profile} size={44} status={myPresence} showStatus />
         </button>
       </nav>
-      <main className="min-w-0 flex-1">
+      <main className={`min-w-0 flex-1 ${hideBottomNav ? '' : 'pb-[68px] md:pb-0'}`}>
         <Outlet />
       </main>
+      {!hideBottomNav && <BottomNav />}
     </div>
   );
 }

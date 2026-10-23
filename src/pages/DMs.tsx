@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, useMatch, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { useFriends } from '../hooks/useFriends';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
-import { timeAgo } from '../lib/format';
-import type { DM, Message, Profile } from '../lib/types';
+import ProfileCard from '../components/ProfileCard';
+import { formatShort } from '../lib/format';
+import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
+import type { DM, Friendship, Message, Profile } from '../lib/types';
 
 export interface DMView {
   dm: DM;
@@ -41,23 +43,54 @@ function GroupAvatar({ profiles, size = 44 }: { profiles: Profile[]; size?: numb
   );
 }
 
+const muteIcon = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted">
+    <path d="M13.7 21a2 2 0 0 1-3.4 0 M18.4 15.5A9 9 0 1 1 5.6 8.4l12.8 7.1z M22 10a9 9 0 0 1-1.5 5 M2 2l20 20" />
+  </svg>
+);
+
 export default function DMs() {
-  const { sb, user } = useAuth();
+  const { sb, user, settings, saveSettings } = useAuth();
   const { online } = usePresence();
   const { entries } = useFriends();
   const navigate = useNavigate();
+  const location = useLocation();
   const match = useMatch('/app/dm/:dmId');
   const openDmId = match?.params.dmId ?? null;
 
   const [views, setViews] = useState<DMView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [pinned, setPinned] = useState<string[]>(() => getPinnedDMs());
+  const [sheetDM, setSheetDM] = useState<DMView | null>(null);
+  const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
+  const [profileFriendship, setProfileFriendship] = useState<Friendship | null>(null);
+  const [toast, setToast] = useState('');
+  const pressTimer = useRef<number | null>(null);
+  const toastTimer = useRef<number | null>(null);
 
   const me = user?.id ?? '';
+  const mutedIds = new Set(settings?.dm_mute ?? []);
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(''), 3000);
+  };
+
+  // Ouverture du modal « nouveau groupe » demandée depuis l'écran Nouveau message
+  useEffect(() => {
+    const st = location.state as { createGroup?: boolean } | null;
+    if (st?.createGroup) {
+      setShowCreate(true);
+      navigate('/app/dm', { replace: true, state: {} });
+    }
+  }, [location.state, navigate]);
 
   const load = useCallback(async () => {
     if (!me) return;
@@ -122,11 +155,6 @@ export default function DMs() {
         unread: unreadByDm.get(d.id) ?? 0,
       };
     });
-    built.sort((a, b) => {
-      const ta = a.lastMessage?.created_at ?? a.dm.created_at;
-      const tb = b.lastMessage?.created_at ?? b.dm.created_at;
-      return tb.localeCompare(ta);
-    });
     setViews(built);
     setLoading(false);
   }, [sb, me]);
@@ -153,11 +181,6 @@ export default function DMs() {
           if (m.dm_id !== openDmId && m.author_id !== me) v.unread = v.unread + 1;
           if (m.dm_id === openDmId) v.unread = 0;
           next[idx] = v;
-          next.sort((a, b) => {
-            const ta = a.lastMessage?.created_at ?? a.dm.created_at;
-            const tb = b.lastMessage?.created_at ?? b.dm.created_at;
-            return tb.localeCompare(ta);
-          });
           return next;
         });
       })
@@ -175,6 +198,93 @@ export default function DMs() {
   const dmTitle = (v: DMView) => {
     if (v.dm.is_group) return v.dm.name || 'Groupe sans nom';
     return v.others[0]?.display_name || v.others[0]?.username || 'Conversation';
+  };
+
+  const sorted = [...views].sort((a, b) => {
+    const pa = pinned.includes(a.dm.id) ? 0 : 1;
+    const pb = pinned.includes(b.dm.id) ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    const ta = a.lastMessage?.created_at ?? a.dm.created_at;
+    const tb = b.lastMessage?.created_at ?? b.dm.created_at;
+    return tb.localeCompare(ta);
+  });
+
+  const needle = searchQ.trim().toLowerCase();
+  const filtered = needle
+    ? sorted.filter((v) => dmTitle(v).toLowerCase().includes(needle))
+    : sorted;
+
+  const preview = (v: DMView) => {
+    if (!v.lastMessage) return 'Aucun message pour l’instant';
+    const body = v.lastMessage.attachment_name && !v.lastMessage.content
+      ? `Fichier : ${v.lastMessage.attachment_name}`
+      : v.lastMessage.content;
+    return v.lastMessage.author_id === me ? `Toi : ${body}` : `${v.lastAuthorName} : ${body}`;
+  };
+
+  const togglePin = (v: DMView) => {
+    const next = pinned.includes(v.dm.id) ? pinned.filter((id) => id !== v.dm.id) : [v.dm.id, ...pinned];
+    setPinned(next);
+    setPinnedDMs(next);
+    setSheetDM(null);
+    flash(next.includes(v.dm.id) ? 'Conversation épinglée.' : 'Conversation désépinglée.');
+  };
+
+  const toggleMute = async (v: DMView) => {
+    if (!settings) return;
+    const list = mutedIds.has(v.dm.id)
+      ? settings.dm_mute.filter((id) => id !== v.dm.id)
+      : [...settings.dm_mute, v.dm.id];
+    await saveSettings({ dm_mute: list });
+    setSheetDM(null);
+    flash(mutedIds.has(v.dm.id) ? 'Notifications réactivées.' : 'Conversation en sourdine.');
+  };
+
+  const markAsRead = async (v: DMView) => {
+    await sb.from('dm_members').update({ last_read_at: new Date().toISOString() }).eq('dm_id', v.dm.id).eq('user_id', me);
+    setViews((prev) => prev.map((x) => (x.dm.id === v.dm.id ? { ...x, unread: 0 } : x)));
+    setSheetDM(null);
+    flash('Conversation marquée comme lue.');
+  };
+
+  const closeDM = async (v: DMView) => {
+    await sb.from('dm_members').delete().eq('dm_id', v.dm.id).eq('user_id', me);
+    setSheetDM(null);
+    if (openDmId === v.dm.id) navigate('/app/dm');
+    load();
+  };
+
+  const openProfile = async (v: DMView) => {
+    const p = v.others[0];
+    if (!p) {
+      setSheetDM(null);
+      return;
+    }
+    setProfileTarget(p);
+    setProfileFriendship(null);
+    setSheetDM(null);
+    const { data } = await sb
+      .from('friendships')
+      .select('*')
+      .or(`and(requester_id.eq.${me},addressee_id.eq.${p.id}),and(requester_id.eq.${p.id},addressee_id.eq.${me})`)
+      .eq('status', 'accepted')
+      .maybeSingle();
+    setProfileFriendship((data as Friendship) ?? null);
+  };
+
+  const openMessageTo = async (profile: Profile) => {
+    setProfileTarget(null);
+    const { data, error } = await sb.rpc('create_direct_dm', { p_other: profile.id });
+    if (!error && data) navigate(`/app/dm/${data as string}`);
+    else flash('Ouverture de la conversation impossible.');
+  };
+
+  const startPress = (v: DMView) => {
+    if (pressTimer.current) window.clearTimeout(pressTimer.current);
+    pressTimer.current = window.setTimeout(() => setSheetDM(v), 550);
+  };
+  const endPress = () => {
+    if (pressTimer.current) window.clearTimeout(pressTimer.current);
   };
 
   const createGroup = async (e: React.FormEvent) => {
@@ -217,66 +327,103 @@ export default function DMs() {
   };
 
   const friends = entries.filter((e) => e.friendship.status === 'accepted');
+  const sheetFriend = sheetDM && !sheetDM.dm.is_group ? sheetDM.others[0] ?? null : null;
 
   return (
     <div className="flex h-full">
       <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-80 md:shrink-0`}>
-        <div className="flex items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-extrabold">Messages privés</h1>
+        <div className="flex items-center gap-2 px-4 pb-2 pt-4">
+          <h1 className="flex-1 text-lg font-extrabold">Messages privés</h1>
           <button
-            onClick={() => setShowCreate(true)}
-            className="rounded-xl bg-primary px-3 py-1.5 text-sm font-bold text-white hover:opacity-90"
-            title="Créer un groupe"
+            onClick={() => navigate('/app/amis')}
+            className="rounded-xl bg-surface2 px-3 py-1.5 text-xs font-bold hover:bg-line"
+            title="Ajouter des amis"
           >
-            + Groupe
+            ＋ Amis
           </button>
+          <button
+            onClick={() => navigate('/app/dm/nouveau')}
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white hover:opacity-90"
+            title="Nouveau message"
+            aria-label="Nouveau message"
+          >
+            ＋
+          </button>
+        </div>
+        <div className="px-4 pb-3">
+          <div className="flex items-center gap-2 rounded-xl bg-base px-3 py-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-muted">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="Rechercher"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+              aria-label="Rechercher une conversation"
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {loading ? (
             <p className="px-4 py-8 text-center text-sm text-muted">Chargement…</p>
-          ) : views.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="px-4 py-8 text-center">
-              <p className="font-semibold">Aucune conversation</p>
-              <p className="mt-1 text-sm text-muted">Ouvre le profil d’un ami et clique sur « Message » pour commencer.</p>
+              <p className="font-semibold">{needle ? 'Aucun résultat' : 'Aucune conversation'}</p>
+              <p className="mt-1 text-sm text-muted">
+                {needle ? 'Essaie un autre nom.' : 'Touche ＋ pour écrire à un ami.'}
+              </p>
             </div>
           ) : (
-            views.map((v) => {
+            filtered.map((v) => {
               const isOpen = openDmId === v.dm.id;
+              const isPinned = pinned.includes(v.dm.id);
+              const isMuted = mutedIds.has(v.dm.id);
               const st = !v.dm.is_group && v.others[0] ? online[v.others[0].id]?.status ?? 'hors_ligne' : null;
               return (
-                <NavLink
+                <div
                   key={v.dm.id}
-                  to={`/app/dm/${v.dm.id}`}
-                  className={`dm-item mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 ${
-                    isOpen ? 'bg-surface2' : 'hover:bg-surface2/60'
-                  }`}
+                  onContextMenu={(e) => { e.preventDefault(); setSheetDM(v); }}
+                  onTouchStart={() => startPress(v)}
+                  onTouchEnd={endPress}
+                  onTouchMove={endPress}
+                  className="select-none"
                 >
-                  {v.dm.is_group ? (
-                    <GroupAvatar profiles={v.others} />
-                  ) : (
-                    <Avatar profile={v.others[0]} size={44} status={st} showStatus />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="truncate text-sm font-semibold">{dmTitle(v)}</p>
-                      {v.lastMessage && (
-                        <span className="shrink-0 text-[11px] text-muted">{timeAgo(v.lastMessage.created_at)}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-xs text-muted">
-                        {v.lastMessage
-                          ? `${v.lastMessage.author_id === me ? 'Toi' : v.lastAuthorName} : ${v.lastMessage.attachment_name && !v.lastMessage.content ? `Fichier : ${v.lastMessage.attachment_name}` : v.lastMessage.content}`
-                          : 'Aucun message pour l’instant'}
-                      </p>
-                      {v.unread > 0 && (
-                        <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-white">
-                          {v.unread > 99 ? '99+' : v.unread}
+                  <NavLink
+                    to={`/app/dm/${v.dm.id}`}
+                    className={`dm-item mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+                      isOpen ? 'bg-surface2' : 'hover:bg-surface2/60'
+                    }`}
+                  >
+                    {v.dm.is_group ? (
+                      <GroupAvatar profiles={v.others} />
+                    ) : (
+                      <Avatar profile={v.others[0]} size={44} status={st} showStatus />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold">
+                          {isPinned && <span title="Épinglée">📌</span>}
+                          <span className="truncate">{dmTitle(v)}</span>
+                        </p>
+                        {v.lastMessage && (
+                          <span className="shrink-0 text-[11px] text-muted">{formatShort(v.lastMessage.created_at)}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-xs text-muted">{preview(v)}</p>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {isMuted && <span title="Sourdine">{muteIcon}</span>}
+                          {v.unread > 0 && (
+                            <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-white">
+                              {v.unread > 99 ? '99+' : v.unread}
+                            </span>
+                          )}
                         </span>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </NavLink>
+                  </NavLink>
+                </div>
               );
             })
           )}
@@ -285,6 +432,53 @@ export default function DMs() {
       <section className={`${openDmId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 bg-base`}>
         <Outlet />
       </section>
+
+      {/* Fiche d'actions de la conversation (appui long) */}
+      {sheetDM && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Actions de la conversation">
+          <button aria-label="Fermer" onClick={() => setSheetDM(null)} className="absolute inset-0 bg-black/60" />
+          <div className="relative w-full rounded-t-3xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+            <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line sm:hidden" />
+            <div className="mb-3 flex items-center gap-3 px-2">
+              {sheetDM.dm.is_group ? <GroupAvatar profiles={sheetDM.others} size={44} /> : <Avatar profile={sheetDM.others[0]} size={44} />}
+              <p className="truncate text-base font-extrabold">@{sheetDM.dm.is_group ? (sheetDM.dm.name || 'groupe') : (sheetDM.others[0]?.username ?? '')}</p>
+            </div>
+            <div className="space-y-1">
+              {sheetFriend && (
+                <button onClick={() => openProfile(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
+                  <span className="text-muted">👤</span> Profil
+                </button>
+              )}
+              <button onClick={() => closeDM(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
+                <span className="text-muted">🚪</span> {sheetDM.dm.is_group ? 'Quitter le groupe' : 'Fermer le MP'}
+              </button>
+            </div>
+            <div className="mt-2 space-y-1 rounded-2xl bg-surface2/50 p-1">
+              <button onClick={() => togglePin(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
+                <span className="text-muted">📌</span> {pinned.includes(sheetDM.dm.id) ? 'Désépingler' : 'Épingler'}
+              </button>
+            </div>
+            <div className="mt-2 space-y-1 rounded-2xl bg-surface2/50 p-1">
+              <button onClick={() => markAsRead(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
+                <span className="text-muted">👁️</span> Marquer comme lu
+              </button>
+              <button onClick={() => toggleMute(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
+                <span className="text-muted">🔕</span> {mutedIds.has(sheetDM.dm.id) ? 'Réactiver les notifications' : 'Rendre cette conversation muette'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {profileTarget && (
+        <ProfileCard
+          profile={profileTarget}
+          friendship={profileFriendship}
+          status={online[profileTarget.id]?.status ?? 'hors_ligne'}
+          onMessage={() => openMessageTo(profileTarget)}
+          onClose={() => setProfileTarget(null)}
+        />
+      )}
 
       {showCreate && (
         <Modal title="Créer un groupe de discussion" onClose={() => setShowCreate(false)} wide>
@@ -336,6 +530,12 @@ export default function DMs() {
           </form>
         </Modal>
       )}
+
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-base shadow-2xl md:bottom-8">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
@@ -344,10 +544,10 @@ export function EmptyDM() {
   return (
     <EmptyState
       title="Tes messages privés"
-      text="Sélectionne une conversation à gauche, ou ouvre le profil d’un ami et clique sur « Message » pour en commencer une."
+      text="Sélectionne une conversation, ou touche ＋ pour écrire à un ami."
       action={
-        <NavLink to="/app/amis" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90">
-          Voir mes amis
+        <NavLink to="/app/dm/nouveau" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90">
+          Nouveau message
         </NavLink>
       }
     />

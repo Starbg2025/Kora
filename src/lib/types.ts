@@ -57,6 +57,19 @@ export interface Message {
   created_at: string;
 }
 
+export interface MessageReaction {
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+export interface MessagePin {
+  message_id: string;
+  pinned_by: string;
+  pinned_at: string;
+}
+
 export const STATUS_LABELS: Record<PresenceStatus, string> = {
   en_ligne: 'En ligne',
   inactif: 'Inactif',

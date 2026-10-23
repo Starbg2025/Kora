@@ -29,7 +29,23 @@ export function formatFull(iso: string): string {
   return fullFmt.format(new Date(iso));
 }
 
-/** "à l'instant" / "il y a 5 min" / "il y a 3 h" / date */
+/** "2 h" / "22 h" / "3 j" / "12 mars" (style liste de discussions) */
+export function formatShort(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "à l'instant";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h`;
+  const j = Math.floor(h / 24);
+  if (j < 7) return `${j} j`;
+  return dayFmt.format(new Date(iso));
+}
+
+/** "12 mars 2026" (ex. « Membre depuis ») */
+export function formatDate(iso: string): string {
+  return dayFmt.format(new Date(iso));
+}
 export function timeAgo(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "à l'instant";
