@@ -51,7 +51,7 @@ export default function AppShell() {
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-base text-ink">
+    <div className="flex h-dvh overflow-hidden bg-base text-ink">
       <nav className="flex w-[72px] shrink-0 flex-col items-center gap-3 bg-surface py-3" aria-label="Navigation principale">
         <button onClick={() => navigate('/')} title="Kora — accueil" aria-label="Kora — accueil">
           <Logo size={48} />

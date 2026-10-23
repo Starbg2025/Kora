@@ -98,6 +98,7 @@ export default function Conversation() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const [showPanel, setShowPanel] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -354,8 +355,18 @@ export default function Conversation() {
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* En-tête */}
-        <div className="border-b border-line px-5 py-3">
-          <div className="flex items-center gap-3">
+        <div className="border-b border-line px-3 py-3 md:px-5">
+          <div className="flex items-center gap-2 md:gap-3">
+            <button
+              onClick={() => navigate('/app/dm')}
+              className="shrink-0 rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink md:hidden"
+              aria-label="Retour aux conversations"
+              title="Retour"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5 M12 19l-7-7 7-7" />
+              </svg>
+            </button>
             {dm.is_group ? (
               <Avatar profile={null} size={40} />
             ) : (
@@ -380,6 +391,7 @@ export default function Conversation() {
                 </>
               )}
             </div>
+            <div className="hidden shrink-0 items-center gap-1 md:flex">
             <button
               onClick={() => setShowSearch((s) => !s)}
               className={`rounded-lg px-3 py-1.5 text-sm ${showSearch ? 'bg-surface2 text-ink' : 'text-muted hover:text-ink'}`}
@@ -400,6 +412,41 @@ export default function Conversation() {
             >
               {dm.is_group ? 'Membres' : 'Profil'}
             </button>
+            </div>
+            <div className="relative shrink-0 md:hidden">
+              <button
+                onClick={() => setShowMenu((s) => !s)}
+                className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+                aria-label="Options de la conversation"
+                title="Options"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" />
+                </svg>
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 z-30 mt-1 w-52 rounded-xl border border-line bg-surface p-1 shadow-2xl">
+                  <button
+                    onClick={() => { setShowSearch((s) => !s); setShowMenu(false); }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
+                  >
+                    Rechercher
+                  </button>
+                  <button
+                    onClick={() => { toggleMute(); setShowMenu(false); }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
+                  >
+                    {muted ? 'Réactiver les notifications' : 'Couper les notifications'}
+                  </button>
+                  <button
+                    onClick={() => { setShowPanel((s) => !s); setShowMenu(false); }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-surface2"
+                  >
+                    {dm.is_group ? 'Membres du groupe' : 'Voir le profil'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           {showSearch && (
             <div className="mt-3">
@@ -651,7 +698,7 @@ export default function Conversation() {
 
       {/* Panneau droit contextuel */}
       {showPanel && (
-        <aside className="w-72 shrink-0 border-l border-line bg-surface p-4">
+        <aside className="fixed inset-y-0 right-0 z-40 w-72 border-l border-line bg-surface p-4 shadow-2xl md:static md:z-auto md:shrink-0 md:shadow-none">
           {dm.is_group ? (
             <>
               <div className="mb-3 flex items-center justify-between">

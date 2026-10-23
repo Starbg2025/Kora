@@ -249,7 +249,7 @@ export default function Friends() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Ajouter un ami — nom d’utilisateur exact"
-            className="w-full max-w-md rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-primary"
+            className="w-full min-w-0 max-w-md rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-primary"
             aria-label="Rechercher un utilisateur par nom exact"
           />
           <button
@@ -261,14 +261,14 @@ export default function Friends() {
         </form>
         <div className="mt-3 space-y-2">{renderSearchResult()}</div>
         {notice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-2.5 text-sm">{notice}</p>}
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
           {TABS.map((t) => {
             const count = t.id === 'amis' ? friends.length : t.id === 'recues' ? received.length : t.id === 'envoyees' ? sent.length : blocked.length;
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
                   tab === t.id ? 'bg-surface2 text-ink' : 'text-muted hover:text-ink'
                 }`}
               >

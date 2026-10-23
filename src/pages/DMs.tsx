@@ -220,7 +220,7 @@ export default function DMs() {
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-80 shrink-0 flex-col border-r border-line bg-surface">
+      <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-80 md:shrink-0`}>
         <div className="flex items-center justify-between px-4 py-4">
           <h1 className="text-lg font-extrabold">Messages privés</h1>
           <button
@@ -282,7 +282,7 @@ export default function DMs() {
           )}
         </div>
       </aside>
-      <section className="min-w-0 flex-1 bg-base">
+      <section className={`${openDmId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 bg-base`}>
         <Outlet />
       </section>
 
