@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import Logo from './Logo';
 import Avatar from './Avatar';
 import BottomNav from './BottomNav';
+import ServerRail from './ServerRail';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 
@@ -24,9 +25,12 @@ function NavItem({ to, label, icon }: { to: string; label: string; icon: ReactNo
 }
 
 const ICONS = {
-  chat: (
+  community: (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
   friends: (
@@ -51,17 +55,18 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
-  // Sur mobile, la barre du bas disparaît dans une conversation ou le flux « nouveau message »
-  const hideBottomNav = /^\/app\/dm\/.+/.test(location.pathname);
+  // Sur mobile, la barre du bas disparaît dans une conversation, un salon ou le flux « nouveau message »
+  const hideBottomNav = /^\/app\/dm\/.+/.test(location.pathname) || /^\/app\/c\/[^/]+\/[^/]+/.test(location.pathname);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-base text-ink">
+      <ServerRail />
       <nav className="hidden w-[72px] shrink-0 flex-col items-center gap-3 bg-surface py-3 md:flex" aria-label="Navigation principale">
         <button onClick={() => navigate('/')} title="Kora — accueil" aria-label="Kora — accueil">
           <Logo size={48} />
         </button>
         <div className="h-px w-8 bg-line" />
-        <NavItem to="/app/dm" label="Messages privés" icon={ICONS.chat} />
+        <NavItem to="/app/communautes" label="Communautés" icon={ICONS.community} />
         <NavItem to="/app/amis" label="Amis" icon={ICONS.friends} />
         <div className="flex-1" />
         <NavItem to="/app/parametres" label="Paramètres" icon={ICONS.settings} />

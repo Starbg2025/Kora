@@ -15,6 +15,14 @@ const friendsIcon = (
     <path d="M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
   </svg>
 );
+const communitiesIcon = (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
 
 /** Barre de navigation inférieure (mobile uniquement), façon application mobile. */
 export default function BottomNav() {
@@ -39,6 +47,10 @@ export default function BottomNav() {
       <NavLink to="/app/amis" className={({ isActive }) => item(isActive)} aria-label="Amis">
         {friendsIcon}
         Amis
+      </NavLink>
+      <NavLink to="/app/communautes" className={({ isActive }) => item(isActive)} aria-label="Communautés">
+        {communitiesIcon}
+        Communautés
       </NavLink>
       <NavLink
         to="/app/parametres?onglet=profil"

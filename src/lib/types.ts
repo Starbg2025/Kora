@@ -102,3 +102,103 @@ export const STATUS_COLORS: Record<string, string> = {
   invisible: '#6B7280',
   hors_ligne: '#6B7280',
 };
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Communautés
+// ---------------------------------------------------------------------------
+
+export type CommunityRole = 'proprietaire' | 'admin' | 'moderateur' | 'membre';
+
+export interface Community {
+  id: string;
+  name: string;
+  description: string;
+  icon_url: string | null;
+  owner_id: string;
+  invite_code: string;
+  is_public: boolean;
+  created_at: string;
+}
+
+export interface CommunityMember {
+  community_id: string;
+  user_id: string;
+  role: CommunityRole;
+  joined_at: string;
+  profiles?: Profile | null;
+}
+
+export interface ChannelCategory {
+  id: string;
+  community_id: string;
+  name: string;
+  position: number;
+  created_at: string;
+}
+
+export interface Channel {
+  id: string;
+  community_id: string;
+  category_id: string | null;
+  name: string;
+  topic: string;
+  type: 'text';
+  position: number;
+  created_at: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  content: string;
+  attachment_path: string | null;
+  attachment_name: string | null;
+  edited_at: string | null;
+  reply_to: string | null;
+  created_at: string;
+}
+
+export interface CommunityMessageReaction {
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+export interface CommunityMessagePin {
+  message_id: string;
+  pinned_by: string;
+  pinned_at: string;
+}
+
+export interface CommunityInvite {
+  code: string;
+  community_id: string;
+  created_by: string;
+  max_uses: number | null;
+  uses: number;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export const ROLE_LABELS: Record<CommunityRole, string> = {
+  proprietaire: 'Propriétaire',
+  admin: 'Admin',
+  moderateur: 'Modérateur',
+  membre: 'Membre',
+};
+
+export const ROLE_COLORS: Record<CommunityRole, string> = {
+  proprietaire: '#F59E0B',
+  admin: '#EF4444',
+  moderateur: '#3B82F6',
+  membre: '#9CA3AF',
+};
+
+export const ROLE_RANK: Record<CommunityRole, number> = {
+  membre: 1,
+  moderateur: 2,
+  admin: 3,
+  proprietaire: 4,
+};

@@ -16,6 +16,11 @@ import NewMessage from './pages/NewMessage';
 import Conversation from './components/Conversation';
 import Friends from './pages/Friends';
 import Settings from './pages/Settings';
+import Communities from './pages/Communities';
+import Discover from './pages/Discover';
+import Community from './pages/Community';
+import ChannelRoute from './pages/ChannelRoute';
+import InvitePage from './pages/InvitePage';
 
 /** Écran affiché quand Supabase n'est pas configuré : honnête, sans mode démo. */
 function ConfigRequired() {
@@ -97,7 +102,13 @@ export default function App() {
               </Route>
               <Route path="amis" element={<Friends />} />
               <Route path="parametres" element={<Settings />} />
+              <Route path="communautes" element={<Communities />} />
+              <Route path="decouvrir" element={<Discover />} />
+              <Route path="c/:communityId" element={<Community />}>
+                <Route path=":channelId" element={<ChannelRoute />} />
+              </Route>
             </Route>
+            <Route path="/invitation/:code" element={<InvitePage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </PresenceProvider>
