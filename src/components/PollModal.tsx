@@ -40,7 +40,7 @@ export default function PollModal({ dmId, onClose, onPublished }: Props) {
       // 1. Message porteur (la question reste lisible même sans la table des sondages)
       const { data: msg, error: msgErr } = await sb
         .from('messages')
-        .insert({ dm_id: dmId, sender_id: me, content: '📊 ' + q })
+        .insert({ dm_id: dmId, author_id: me, content: '📊 ' + q })
         .select('id')
         .single();
       if (msgErr) throw msgErr;

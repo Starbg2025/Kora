@@ -33,8 +33,7 @@ create policy reactions_select on public.message_reactions
   for select to authenticated
   using (exists (
     select 1 from public.messages msg
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where msg.id = message_reactions.message_id and m.user_id = auth.uid()
+    where msg.id = message_reactions.message_id and public.is_dm_member(msg.dm_id)
   ));
 
 drop policy if exists reactions_insert on public.message_reactions;
@@ -44,8 +43,7 @@ create policy reactions_insert on public.message_reactions
     user_id = auth.uid()
     and exists (
       select 1 from public.messages msg
-      join public.dm_members m on m.dm_id = msg.dm_id
-      where msg.id = message_reactions.message_id and m.user_id = auth.uid()
+      where msg.id = message_reactions.message_id and public.is_dm_member(msg.dm_id)
     )
   );
 
@@ -62,8 +60,7 @@ create policy pins_select on public.message_pins
   for select to authenticated
   using (exists (
     select 1 from public.messages msg
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where msg.id = message_pins.message_id and m.user_id = auth.uid()
+    where msg.id = message_pins.message_id and public.is_dm_member(msg.dm_id)
   ));
 
 drop policy if exists pins_write on public.message_pins;
@@ -71,13 +68,11 @@ create policy pins_write on public.message_pins
   for all to authenticated
   using (exists (
     select 1 from public.messages msg
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where msg.id = message_pins.message_id and m.user_id = auth.uid()
+    where msg.id = message_pins.message_id and public.is_dm_member(msg.dm_id)
   ))
   with check (exists (
     select 1 from public.messages msg
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where msg.id = message_pins.message_id and m.user_id = auth.uid()
+    where msg.id = message_pins.message_id and public.is_dm_member(msg.dm_id)
   ));
 
 -- --------------------------------------------------------------------------

@@ -44,8 +44,7 @@ create policy polls_select on public.message_polls
   for select to authenticated
   using (exists (
     select 1 from public.messages msg
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where msg.id = message_polls.message_id and m.user_id = auth.uid()
+    where msg.id = message_polls.message_id and public.is_dm_member(msg.dm_id)
   ));
 
 drop policy if exists polls_insert on public.message_polls;
@@ -55,8 +54,7 @@ create policy polls_insert on public.message_polls
     created_by = auth.uid()
     and exists (
       select 1 from public.messages msg
-      join public.dm_members m on m.dm_id = msg.dm_id
-      where msg.id = message_polls.message_id and m.user_id = auth.uid()
+      where msg.id = message_polls.message_id and public.is_dm_member(msg.dm_id)
     )
   );
 
@@ -74,8 +72,7 @@ create policy poll_votes_select on public.message_poll_votes
   using (exists (
     select 1 from public.message_polls p
     join public.messages msg on msg.id = p.message_id
-    join public.dm_members m on m.dm_id = msg.dm_id
-    where p.id = message_poll_votes.poll_id and m.user_id = auth.uid()
+    where p.id = message_poll_votes.poll_id and public.is_dm_member(msg.dm_id)
   ));
 
 drop policy if exists poll_votes_insert on public.message_poll_votes;
@@ -86,8 +83,7 @@ create policy poll_votes_insert on public.message_poll_votes
     and exists (
       select 1 from public.message_polls p
       join public.messages msg on msg.id = p.message_id
-      join public.dm_members m on m.dm_id = msg.dm_id
-      where p.id = message_poll_votes.poll_id and m.user_id = auth.uid()
+      where p.id = message_poll_votes.poll_id and public.is_dm_member(msg.dm_id)
     )
   );
 

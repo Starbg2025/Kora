@@ -229,11 +229,26 @@ create policy friendships_delete on public.friendships
 
 -- --------------------------------------------------------------------------
 -- 7. RLS — dms / dm_members
+-- Helper SECURITY DEFINER : évite la récursion infinie des policies qui
+-- interrogeraient dm_members dans leur propre définition (erreur 42P17).
 -- --------------------------------------------------------------------------
+create or replace function public.is_dm_member(p_dm uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.dm_members
+    where dm_id = p_dm and user_id = auth.uid()
+  );
+$$;
+
 drop policy if exists dms_select on public.dms;
 create policy dms_select on public.dms
   for select to authenticated
-  using (exists (select 1 from public.dm_members m where m.dm_id = dms.id and m.user_id = auth.uid()));
+  using (public.is_dm_member(dms.id));
 
 drop policy if exists dms_insert on public.dms;
 create policy dms_insert on public.dms
@@ -243,8 +258,8 @@ create policy dms_insert on public.dms
 drop policy if exists dms_update on public.dms;
 create policy dms_update on public.dms
   for update to authenticated
-  using (exists (select 1 from public.dm_members m where m.dm_id = dms.id and m.user_id = auth.uid()))
-  with check (exists (select 1 from public.dm_members m where m.dm_id = dms.id and m.user_id = auth.uid()));
+  using (public.is_dm_member(dms.id))
+  with check (public.is_dm_member(dms.id));
 
 drop policy if exists dms_delete on public.dms;
 create policy dms_delete on public.dms
@@ -254,14 +269,14 @@ create policy dms_delete on public.dms
 drop policy if exists dm_members_select on public.dm_members;
 create policy dm_members_select on public.dm_members
   for select to authenticated
-  using (exists (select 1 from public.dm_members m where m.dm_id = dm_members.dm_id and m.user_id = auth.uid()));
+  using (public.is_dm_member(dm_members.dm_id));
 
 drop policy if exists dm_members_insert on public.dm_members;
 create policy dm_members_insert on public.dm_members
   for insert to authenticated
   with check (
     user_id = auth.uid()
-    or exists (select 1 from public.dm_members m where m.dm_id = dm_members.dm_id and m.user_id = auth.uid())
+    or public.is_dm_member(dm_members.dm_id)
   );
 
 drop policy if exists dm_members_update on public.dm_members;
@@ -280,14 +295,14 @@ create policy dm_members_delete on public.dm_members
 drop policy if exists messages_select on public.messages;
 create policy messages_select on public.messages
   for select to authenticated
-  using (exists (select 1 from public.dm_members m where m.dm_id = messages.dm_id and m.user_id = auth.uid()));
+  using (public.is_dm_member(messages.dm_id));
 
 drop policy if exists messages_insert on public.messages;
 create policy messages_insert on public.messages
   for insert to authenticated
   with check (
     auth.uid() = author_id
-    and exists (select 1 from public.dm_members m where m.dm_id = messages.dm_id and m.user_id = auth.uid())
+    and public.is_dm_member(messages.dm_id)
   );
 
 drop policy if exists messages_update on public.messages;
@@ -335,7 +350,7 @@ create policy pj_read on storage.objects
   using (
     bucket_id = 'pieces-jointes'
     and (storage.foldername(name))[1] in (
-      select dm_id::text from public.dm_members where user_id = auth.uid()
+      select id::text from public.dms where public.is_dm_member(id)
     )
   );
 
@@ -345,7 +360,7 @@ create policy pj_write on storage.objects
   with check (
     bucket_id = 'pieces-jointes'
     and (storage.foldername(name))[1] in (
-      select dm_id::text from public.dm_members where user_id = auth.uid()
+      select id::text from public.dms where public.is_dm_member(id)
     )
   );
 
@@ -355,7 +370,7 @@ create policy pj_delete on storage.objects
   using (
     bucket_id = 'pieces-jointes'
     and (storage.foldername(name))[1] in (
-      select dm_id::text from public.dm_members where user_id = auth.uid()
+      select id::text from public.dms where public.is_dm_member(id)
     )
   );
 
