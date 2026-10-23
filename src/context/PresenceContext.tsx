@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 
 export interface PresenceInfo {
@@ -23,6 +23,9 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
   const typingRef = useRef<string | null>(null);
   const statusRef = useRef<string>(profile?.status ?? 'en_ligne');
   const typingTimer = useRef<number | null>(null);
+  // Canal unique par instance : sb.channel() réutilise un canal existant du même
+  // nom, et ajouter des écouteurs après subscribe() fait planter l'app.
+  const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   statusRef.current = profile?.status ?? 'en_ligne';
 
@@ -35,7 +38,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       setOnline({});
       return;
     }
-    const ch = sb.channel('kora-presence', { config: { presence: { key: user.id } } });
+    const ch = sb.channel(`kora-presence-${channelTag}`, { config: { presence: { key: user.id } } });
     channelRef.current = ch as unknown as typeof channelRef.current;
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState() as Record<string, Array<Record<string, unknown>>>;
@@ -57,7 +60,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       channelRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, channelTag]);
 
   // Re-diffuse quand le statut choisi change
   useEffect(() => {

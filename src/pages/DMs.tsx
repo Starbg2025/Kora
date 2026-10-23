@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
@@ -58,6 +58,8 @@ export default function DMs() {
   const location = useLocation();
   const match = useMatch('/app/dm/:dmId');
   const openDmId = match?.params.dmId ?? null;
+  // Canal unique par instance (voir useFriends : sb.channel() réutilise les canaux existants).
+  const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const [views, setViews] = useState<DMView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,7 +170,7 @@ export default function DMs() {
   useEffect(() => {
     if (!me) return;
     const ch = sb
-      .channel('dms-feed')
+      .channel(`dms-feed-${channelTag}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         const m = payload.new as Message;
         setViews((prev) => {
@@ -194,7 +196,7 @@ export default function DMs() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, me, openDmId, load]);
+  }, [sb, me, openDmId, load, channelTag]);
 
   const dmTitle = (v: DMView) => {
     if (v.dm.is_group) return v.dm.name || 'Groupe sans nom';

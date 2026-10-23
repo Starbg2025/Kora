@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { Friendship, Profile } from '../lib/types';
 
@@ -10,6 +10,9 @@ export interface FriendEntry {
 /** Charge toutes les relations d'amitié de l'utilisateur + profils, avec temps réel. */
 export function useFriends() {
   const { sb, user } = useAuth();
+  // Identifiant unique par instance : sb.channel() renvoie le canal existant
+  // pour un même nom, et ajouter des écouteurs après subscribe() fait planter.
+  const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
   const [entries, setEntries] = useState<FriendEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,13 +56,13 @@ export function useFriends() {
   useEffect(() => {
     if (!user) return;
     const ch = sb
-      .channel('friendships-feed')
+      .channel(`friendships-feed-${channelTag}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => reload())
       .subscribe();
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sb, user?.id, channelTag, reload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { entries, loading, reload };
 }

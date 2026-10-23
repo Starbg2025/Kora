@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
@@ -187,6 +187,9 @@ export default function Conversation() {
   const fileInput = useRef<HTMLInputElement>(null);
   const pressTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
+  // Canal unique par instance/montage : sb.channel() réutilise un canal existant
+  // du même nom, et ajouter des écouteurs après subscribe() fait planter l'app.
+  const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const me = user?.id ?? '';
   const muted = settings?.dm_mute.includes(dmId ?? '') ?? false;
@@ -316,7 +319,7 @@ export default function Conversation() {
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     markRead();
-  }, [sb, dmId, me, markRead]);
+  }, [sb, dmId, me, markRead, channelTag]);
 
   useEffect(() => {
     setDraft('');
@@ -338,7 +341,7 @@ export default function Conversation() {
   useEffect(() => {
     if (!dmId || !me) return;
     const ch = sb
-      .channel(`dm:${dmId}`)
+      .channel(`dm:${dmId}:${channelTag}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `dm_id=eq.${dmId}` }, (payload) => {
         const m = payload.new as Message;
         setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
@@ -361,14 +364,14 @@ export default function Conversation() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, dmId, me, markRead]);
+  }, [sb, dmId, me, markRead, channelTag]);
 
   // Temps réel : réactions + épinglés, UNIQUEMENT si les tables existent
   // (migration 20261023_reactions_pins.sql appliquée).
   useEffect(() => {
     if (!dmId || !me || !reactionsReady) return;
     const ch = sb
-      .channel(`dm:${dmId}:rx`)
+      .channel(`dm:${dmId}:rx:${channelTag}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (payload) => {
         const row = (payload.new ?? payload.old) as MessageReaction;
         if (!row?.message_id) return;
@@ -400,14 +403,14 @@ export default function Conversation() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, dmId, me, reactionsReady]);
+  }, [sb, dmId, me, reactionsReady, channelTag]);
 
   // Temps réel : sondages + votes, UNIQUEMENT si les tables existent
   // (migration 20261023_polls.sql appliquée).
   useEffect(() => {
     if (!dmId || !me || !pollsReady) return;
     const ch = sb
-      .channel(`dm:${dmId}:polls`)
+      .channel(`dm:${dmId}:polls:${channelTag}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'message_polls' }, (payload) => {
         const row = (payload.new ?? payload.old) as MessagePoll;
         if (!row?.message_id) return;
@@ -448,7 +451,7 @@ export default function Conversation() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, dmId, me, pollsReady]);
+  }, [sb, dmId, me, pollsReady, channelTag]);
 
   const onScroll = () => {
     if (nearBottom()) {
