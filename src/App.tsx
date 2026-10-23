@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { PresenceProvider } from './context/PresenceContext';
+import { NotificationsProvider } from './context/NotificationsContext';
 import { isSupabaseConfigured } from './lib/supabase';
 import RequireAuth from './components/RequireAuth';
 import AppShell from './components/AppShell';
@@ -16,6 +17,7 @@ import NewMessage from './pages/NewMessage';
 import Conversation from './components/Conversation';
 import Friends from './pages/Friends';
 import Settings from './pages/Settings';
+import NotificationsPage from './pages/NotificationsPage';
 import Communities from './pages/Communities';
 import Discover from './pages/Discover';
 import Community from './pages/Community';
@@ -77,6 +79,7 @@ export default function App() {
     <AuthProvider>
       <ThemeProvider>
         <PresenceProvider>
+          <NotificationsProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/confidentialite" element={<Confidentialite />} />
@@ -102,6 +105,7 @@ export default function App() {
               </Route>
               <Route path="amis" element={<Friends />} />
               <Route path="parametres" element={<Settings />} />
+              <Route path="notifications" element={<NotificationsPage />} />
               <Route path="communautes" element={<Communities />} />
               <Route path="decouvrir" element={<Discover />} />
               <Route path="c/:communityId" element={<Community />}>
@@ -111,6 +115,7 @@ export default function App() {
             <Route path="/invitation/:code" element={<InvitePage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </NotificationsProvider>
         </PresenceProvider>
       </ThemeProvider>
     </AuthProvider>

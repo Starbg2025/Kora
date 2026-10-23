@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import Logo from '../components/Logo';
 
 interface InviteInfo {
@@ -15,6 +16,7 @@ interface InviteInfo {
 export default function InvitePage() {
   const { code } = useParams<{ code: string }>();
   const { sb, user } = useAuth();
+  const { notify } = useNotifications();
   const navigate = useNavigate();
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +51,7 @@ export default function InvitePage() {
     try {
       const { data, error } = await sb.rpc('join_community_via_invite', { p_code: code ?? '' });
       if (error) throw error;
+      await notify('invitation', `Bienvenue dans ${info.name} !`, 'Tu as rejoint la communauté via une invitation.', `/app/c/${data as string}`);
       navigate(`/app/c/${data as string}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossible de rejoindre.');

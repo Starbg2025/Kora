@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import EmptyState from '../components/EmptyState';
 import type { Community } from '../lib/types';
 
@@ -12,6 +13,7 @@ interface DiscoverRow extends Community {
 /** Découverte : communautés publiques, recherche, rejoindre. */
 export default function Discover() {
   const { sb } = useAuth();
+  const { notify } = useNotifications();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<DiscoverRow[]>([]);
@@ -48,6 +50,7 @@ export default function Discover() {
     try {
       const { error } = await sb.rpc('join_community', { p_community: c.id });
       if (error) throw error;
+      await notify('communaute', `Bienvenue dans ${c.name} !`, c.description?.slice(0, 120) ?? '', `/app/c/${c.id}`);
       navigate(`/app/c/${c.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossible de rejoindre.');

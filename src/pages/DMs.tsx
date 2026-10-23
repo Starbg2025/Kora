@@ -10,6 +10,8 @@ import ProfileCard from '../components/ProfileCard';
 import { formatShort } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { openDirectDM } from '../lib/dm';
+import { containsMention, snippet } from '../lib/mentions';
+import { useNotifications } from '../context/NotificationsContext';
 import type { DM, Friendship, Message, Profile } from '../lib/types';
 
 export interface DMView {
@@ -51,9 +53,10 @@ const muteIcon = (
 );
 
 export default function DMs() {
-  const { sb, user, settings, saveSettings } = useAuth();
+  const { sb, user, profile, settings, saveSettings } = useAuth();
   const { online } = usePresence();
   const { entries } = useFriends();
+  const { notify } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const match = useMatch('/app/dm/:dmId');
@@ -186,6 +189,18 @@ export default function DMs() {
           next[idx] = v;
           return next;
         });
+        // Déclencheur : mention @pseudo → notification pour le destinataire
+        if (m.author_id !== me && profile?.username && containsMention(m.content, profile.username)) {
+          sb.from('profiles')
+            .select('display_name, username')
+            .eq('id', m.author_id)
+            .maybeSingle()
+            .then(({ data }) => {
+              const p = data as { display_name: string; username: string } | null;
+              const name = p?.display_name || p?.username || 'Quelqu’un';
+              notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}`);
+            });
+        }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members', filter: `user_id=eq.${me}` }, () => load())
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dms' }, (payload) => {
@@ -196,7 +211,7 @@ export default function DMs() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, me, openDmId, load, channelTag]);
+  }, [sb, me, openDmId, load, channelTag, notify, profile?.username]);
 
   const dmTitle = (v: DMView) => {
     if (v.dm.is_group) return v.dm.name || 'Groupe sans nom';

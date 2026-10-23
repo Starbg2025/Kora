@@ -11,6 +11,7 @@ export interface Profile {
   custom_status_expires_at: string | null;
   created_at: string;
   banner_color: string | null;
+  is_disabled: boolean;
 }
 
 export interface UserSettings {
@@ -19,6 +20,27 @@ export interface UserSettings {
   density: 'confortable' | 'compacte';
   dm_mute: string[];
   friend_requests_open: boolean;
+  accent_color: string;
+  text_size: 'petit' | 'normal' | 'grand';
+  reduce_motion: boolean;
+  notif_messages: boolean;
+  notif_mentions: boolean;
+  notif_friend_requests: boolean;
+  notif_invites: boolean;
+  notif_calls: boolean;
+}
+
+export type NotificationType = 'message' | 'mention' | 'demande_ami' | 'invitation' | 'appel' | 'communaute';
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
 }
 
 export type FriendshipStatus = 'pending' | 'accepted' | 'blocked';

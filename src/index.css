@@ -66,3 +66,13 @@ body {
 [data-density='compacte'] .msg p {
   font-size: 14px;
 }
+
+/* Réduction des animations (préférence d'accessibilité) */
+[data-motion='reduced'] *,
+[data-motion='reduced'] *::before,
+[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

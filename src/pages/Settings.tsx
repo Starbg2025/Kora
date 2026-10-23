@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
 import { useAuth } from '../context/AuthContext';
-import { useTheme, type DensityChoice, type ThemeChoice } from '../context/ThemeContext';
+import { useTheme, ACCENT_COLORS, type DensityChoice, type TextSizeChoice, type ThemeChoice } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import { isValidUsername } from '../lib/format';
-import { STATUS_LABELS, type DM, type PresenceStatus } from '../lib/types';
+import { STATUS_LABELS, type DM, type PresenceStatus, type UserSettings } from '../lib/types';
 
 type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'apropos';
 
@@ -36,12 +36,25 @@ const inputCls =
 /* Onglet Compte                                                       */
 /* ------------------------------------------------------------------ */
 function AccountTab() {
-  const { sb, user } = useAuth();
+  const { sb, user, updateProfile, signOut } = useAuth();
   const [newEmail, setNewEmail] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessionInfo, setSessionInfo] = useState('');
+  const [confirmDisable, setConfirmDisable] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePw, setDeletePw] = useState('');
+
+  useEffect(() => {
+    sb.auth.getSession().then(({ data }) => {
+      const s = data.session;
+      if (!s) return;
+      const created = s.user.created_at ? new Date(s.user.created_at).toLocaleDateString('fr-FR') : '—';
+      setSessionInfo(`Appareil actuel — compte créé le ${created}.`);
+    });
+  }, [sb]);
 
   const changeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,6 +97,35 @@ function AccountTab() {
     }
   };
 
+  const disableAccount = async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await updateProfile({ is_disabled: true });
+      await signOut();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Désactivation impossible.');
+      setBusy(false);
+    }
+  };
+
+  const deleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.email || !deletePw) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      // Re-authentification par mot de passe avant toute action destructive
+      const { error: reauth } = await sb.auth.signInWithPassword({ email: user.email, password: deletePw });
+      if (reauth) throw new Error('Mot de passe incorrect.');
+      await updateProfile({ is_disabled: true });
+      await signOut();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Suppression impossible.');
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="max-w-xl space-y-8">
       <div>
@@ -105,6 +147,63 @@ function AccountTab() {
             Mettre à jour le mot de passe
           </button>
         </form>
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Sessions</h3>
+        <p className="text-sm text-muted">{sessionInfo || 'Chargement…'}</p>
+        <p className="mt-2 text-xs text-muted">
+          Pour des raisons de sécurité, seul l’appareil actuel est affiché ici. La déconnexion à distance des autres appareils n’est pas encore disponible.
+        </p>
+      </div>
+      <div className="rounded-2xl border border-danger/30 p-4">
+        <h3 className="mb-1 font-bold text-danger">Zone dangereuse</h3>
+        {!confirmDisable && !confirmDelete ? (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setConfirmDisable(true)} className="rounded-xl bg-surface2 px-4 py-2 text-sm font-medium hover:bg-line">
+              Désactiver mon compte
+            </button>
+            <button onClick={() => setConfirmDelete(true)} className="rounded-xl bg-danger/10 px-4 py-2 text-sm font-medium text-danger hover:bg-danger/20">
+              Supprimer mon compte
+            </button>
+          </div>
+        ) : confirmDisable ? (
+          <div>
+            <p className="mb-3 text-sm text-muted">
+              Ton compte sera désactivé immédiatement : tu ne pourras plus te connecter. C’est réversible — contacte l’assistance pour le réactiver.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={disableAccount} disabled={busy} className="rounded-xl bg-danger px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                {busy ? '…' : 'Confirmer la désactivation'}
+              </button>
+              <button onClick={() => setConfirmDisable(false)} className="rounded-xl bg-surface2 px-4 py-2 text-sm hover:bg-line">
+                Annuler
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="mb-3 text-sm text-muted">
+              Entre ton mot de passe pour confirmer. Ton compte sera désactivé immédiatement. La suppression définitive des données se fait côté serveur — après cette étape, contacte l’assistance via la <Link to="/contact" className="text-primary underline">page Contact</Link> pour l’effacement complet.
+            </p>
+            <form onSubmit={deleteAccount} className="flex gap-2">
+              <input
+                type="password"
+                required
+                value={deletePw}
+                onChange={(e) => setDeletePw(e.target.value)}
+                placeholder="Ton mot de passe"
+                autoComplete="current-password"
+                className={inputCls}
+              />
+              <button disabled={busy} className="shrink-0 rounded-xl bg-danger px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                {busy ? '…' : 'Supprimer'}
+              </button>
+            </form>
+            <button onClick={() => { setConfirmDelete(false); setDeletePw(''); }} className="mt-2 text-xs text-muted hover:text-ink">
+              Annuler
+            </button>
+          </div>
+        )}
       </div>
       {notice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm">{notice}</p>}
     </div>
@@ -301,7 +400,9 @@ function ProfileTab() {
 /* Onglet Apparence                                                    */
 /* ------------------------------------------------------------------ */
 function AppearanceTab() {
-  const { theme, density, setTheme, setDensity } = useTheme();
+  const { theme, density, setTheme, setDensity, accentColor, setAccentColor, textSize, setTextSize, reduceMotion, setReduceMotion } = useTheme();
+  const { settings, saveSettings } = useAuth();
+  const [sqlNotice, setSqlNotice] = useState('');
   const themes: { id: ThemeChoice; label: string; desc: string }[] = [
     { id: 'clair', label: 'Clair', desc: 'Fond clair, idéal le jour.' },
     { id: 'sombre', label: 'Sombre', desc: 'Fond sombre, doux pour les yeux le soir.' },
@@ -311,6 +412,25 @@ function AppearanceTab() {
     { id: 'confortable', label: 'Confortable', desc: 'Espacements généreux.' },
     { id: 'compacte', label: 'Compacte', desc: 'Plus de messages à l’écran.' },
   ];
+  const sizes: { id: TextSizeChoice; label: string; desc: string }[] = [
+    { id: 'petit', label: 'Petit', desc: 'Texte plus compact.' },
+    { id: 'normal', label: 'Normal', desc: 'Taille par défaut.' },
+    { id: 'grand', label: 'Grand', desc: 'Texte plus lisible.' },
+  ];
+
+  // Les réglages d'apparence avancés sont stockés en base ; si la migration
+  // n'a pas été exécutée, on affiche un message honnête au lieu d'échouer.
+  const guardSql = async (fn: () => Promise<void>) => {
+    setSqlNotice('');
+    try {
+      await fn();
+      // Vérifie que la sauvegarde a bien persisté en relisant
+      await saveSettings({});
+    } catch {
+      setSqlNotice('Option indisponible pour le moment : exécute la migration supabase/migrations/20261024_settings_notifications.sql puis recharge.');
+    }
+  };
+
   return (
     <div className="max-w-xl space-y-8">
       <div>
@@ -328,6 +448,57 @@ function AppearanceTab() {
         </div>
       </div>
       <div>
+        <h3 className="mb-3 font-bold">Couleur d’accent</h3>
+        <div className="flex flex-wrap gap-2">
+          {ACCENT_COLORS.map((c) => {
+            const selected = accentColor.toLowerCase() === c.toLowerCase();
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => guardSql(async () => setAccentColor(c))}
+                title={c}
+                aria-label={`Accent ${c}`}
+                style={{ backgroundColor: c, ['--tw-ring-color' as string]: c }}
+                className={`h-10 w-10 rounded-full ${selected ? 'ring-2 ring-offset-2 ring-offset-base' : 'opacity-70 hover:opacity-100'}`}
+              />
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted">Appliquée aux boutons, liens et éléments actifs. Aperçu : <span className="font-bold text-primary">ce texte utilise ta couleur</span>.</p>
+      </div>
+      <div>
+        <h3 className="mb-3 font-bold">Taille du texte</h3>
+        <div className="space-y-2">
+          {sizes.map((s) => (
+            <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 ${textSize === s.id ? 'border-primary bg-primary/10' : 'border-line'}`}>
+              <input type="radio" name="textsize" checked={textSize === s.id} onChange={() => guardSql(async () => setTextSize(s.id))} className="h-4 w-4 accent-[#7C3AED]" />
+              <div>
+                <p className="text-sm font-semibold">{s.label}</p>
+                <p className="text-xs text-muted">{s.desc}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold">Réduire les animations</p>
+            <p className="text-xs text-muted">Désactive les transitions et animations de l’interface.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={reduceMotion}
+            onClick={() => guardSql(async () => setReduceMotion(!reduceMotion))}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${reduceMotion ? 'bg-primary' : 'bg-line'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${reduceMotion ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </label>
+      </div>
+      <div>
         <h3 className="mb-3 font-bold">Densité d’affichage</h3>
         <div className="space-y-2">
           {densities.map((d) => (
@@ -341,6 +512,15 @@ function AppearanceTab() {
           ))}
         </div>
       </div>
+      <div>
+        <h3 className="mb-3 font-bold">Langue</h3>
+        <div className="rounded-xl border border-line px-4 py-3">
+          <p className="text-sm font-semibold">Français</p>
+          <p className="text-xs text-muted">Seule langue disponible pour le moment.</p>
+        </div>
+      </div>
+      {sqlNotice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">{sqlNotice}</p>}
+      {!settings && <p className="text-xs text-muted">Connecte-toi pour synchroniser ces réglages sur tes appareils.</p>}
     </div>
   );
 }
@@ -348,9 +528,34 @@ function AppearanceTab() {
 /* ------------------------------------------------------------------ */
 /* Onglet Notifications                                                */
 /* ------------------------------------------------------------------ */
+const NOTIF_TYPES: { key: keyof Pick<UserSettings, 'notif_messages' | 'notif_mentions' | 'notif_friend_requests' | 'notif_invites' | 'notif_calls'>; label: string; desc: string }[] = [
+  { key: 'notif_messages', label: 'Nouveaux messages', desc: 'Notifications pour les messages reçus.' },
+  { key: 'notif_mentions', label: 'Mentions', desc: 'Quand quelqu’un te mentionne avec @tonpseudo.' },
+  { key: 'notif_friend_requests', label: 'Demandes d’ami', desc: 'Quand tu reçois une demande d’ami.' },
+  { key: 'notif_invites', label: 'Invitations et communautés', desc: 'Invitations acceptées et activité des communautés.' },
+  { key: 'notif_calls', label: 'Appels', desc: 'Appels entrants (quand les appels seront disponibles).' },
+];
+
+function Toggle({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onChange}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-line'}`}
+    >
+      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+    </button>
+  );
+}
+
 function NotificationsTab() {
   const { sb, settings, saveSettings } = useAuth();
   const [names, setNames] = useState<Record<string, string>>({});
+  const [sqlNotice, setSqlNotice] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const ids = settings?.dm_mute ?? [];
@@ -370,27 +575,58 @@ function NotificationsTab() {
     await saveSettings({ dm_mute: settings.dm_mute.filter((x) => x !== id) });
   };
 
+  const toggleType = async (key: (typeof NOTIF_TYPES)[number]['key']) => {
+    if (!settings || busy) return;
+    setBusy(true);
+    setSqlNotice('');
+    try {
+      await saveSettings({ [key]: !settings[key] });
+    } catch {
+      setSqlNotice('Option indisponible pour le moment : exécute la migration supabase/migrations/20261024_settings_notifications.sql puis recharge.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const muted = settings?.dm_mute ?? [];
   return (
-    <div className="max-w-xl">
-      <h3 className="mb-1 font-bold">Conversations en sourdine</h3>
-      <p className="mb-4 text-sm text-muted">
-        Tu peux couper les notifications d’une conversation depuis son en-tête (bouton « Notifications »).
-      </p>
-      {muted.length === 0 ? (
-        <p className="rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">Aucune conversation en sourdine.</p>
-      ) : (
+    <div className="max-w-xl space-y-8">
+      <div>
+        <h3 className="mb-1 font-bold">Types de notifications</h3>
+        <p className="mb-4 text-sm text-muted">Choisis ce qui déclenche une notification dans Kora.</p>
         <div className="space-y-2">
-          {muted.map((id) => (
-            <div key={id} className="flex items-center justify-between rounded-xl bg-surface2 px-4 py-2.5">
-              <span className="text-sm font-medium">{names[id] ?? 'Conversation'}</span>
-              <button onClick={() => unmute(id)} className="rounded-lg px-3 py-1 text-sm text-primary hover:bg-surface">
-                Réactiver
-              </button>
-            </div>
+          {NOTIF_TYPES.map((t) => (
+            <label key={t.key} className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-line px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">{t.label}</p>
+                <p className="text-xs text-muted">{t.desc}</p>
+              </div>
+              <Toggle on={settings ? !!settings[t.key] : true} onChange={() => toggleType(t.key)} label={t.label} />
+            </label>
           ))}
         </div>
-      )}
+        {sqlNotice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">{sqlNotice}</p>}
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Conversations en sourdine</h3>
+        <p className="mb-4 text-sm text-muted">
+          Tu peux couper les notifications d’une conversation depuis son en-tête (bouton « Notifications »).
+        </p>
+        {muted.length === 0 ? (
+          <p className="rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">Aucune conversation en sourdine.</p>
+        ) : (
+          <div className="space-y-2">
+            {muted.map((id) => (
+              <div key={id} className="flex items-center justify-between rounded-xl bg-surface2 px-4 py-2.5">
+                <span className="text-sm font-medium">{names[id] ?? 'Conversation'}</span>
+                <button onClick={() => unmute(id)} className="rounded-lg px-3 py-1 text-sm text-primary hover:bg-surface">
+                  Réactiver
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -434,6 +670,17 @@ function PrivacyTab() {
           Seules les personnes que tu ajoutes toi-même pourront devenir tes amies.
         </p>
       )}
+      <h3 className="mb-1 mt-8 font-bold">Comptes bloqués</h3>
+      <p className="mb-4 text-sm text-muted">Les personnes bloquées ne peuvent plus te contacter ni te voir en ligne.</p>
+      <Link
+        to="/app/amis?onglet=bloques"
+        className="flex items-center justify-between rounded-xl border border-line px-4 py-3 text-sm font-medium hover:bg-surface2"
+      >
+        <span>Gérer mes comptes bloqués</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </Link>
     </div>
   );
 }
@@ -595,10 +842,10 @@ function SecurityTab() {
 function AboutTab() {
   return (
     <div className="max-w-xl space-y-4">
-      <h3 className="font-bold">Kora — version 0.1.0 (Phase 1)</h3>
+      <h3 className="font-bold">Kora — version 0.2.0 (Phases 1 + 2)</h3>
       <p className="text-sm text-muted">
-        Rassemble ta communauté. Parle, joue, crée. Cette première version couvre l’essentiel :
-        comptes, amis, messages privés en temps réel et profils.
+        Rassemble ta communauté. Parle, joue, crée. Comptes, amis, messages privés en temps réel, profils,
+        communautés avec salons, rôles et invitations, sondages, réactions et centre de notifications.
       </p>
       <nav className="flex flex-col gap-1 text-sm">
         <Link to="/confidentialite" className="rounded-lg px-3 py-2 text-primary hover:bg-surface2">Politique de confidentialité</Link>

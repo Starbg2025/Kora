@@ -36,7 +36,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sb.from('profiles').select('*').eq('id', uid).maybeSingle(),
       sb.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
     ]);
-    if (pRes.data) setProfile(pRes.data as Profile);
+    const p = pRes.data as Profile | null;
+    // Compte désactivé : déconnexion immédiate avec message honnête à la connexion
+    if (p?.is_disabled) {
+      localStorage.setItem('kora-account-disabled', '1');
+      await sb.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      setSettings(null);
+      return;
+    }
+    if (p) setProfile(p);
     if (sRes.data) setSettings(sRes.data as UserSettings);
   };
 

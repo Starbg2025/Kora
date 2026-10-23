@@ -6,20 +6,26 @@ import BottomNav from './BottomNav';
 import ServerRail from './ServerRail';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
+import { useNotifications } from '../context/NotificationsContext';
 
-function NavItem({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
+function NavItem({ to, label, icon, badge }: { to: string; label: string; icon: ReactNode; badge?: number }) {
   return (
     <NavLink
       to={to}
       title={label}
       aria-label={label}
       className={({ isActive }) =>
-        `flex h-12 w-12 items-center justify-center rounded-2xl transition-colors ${
+        `relative flex h-12 w-12 items-center justify-center rounded-2xl transition-colors ${
           isActive ? 'bg-primary text-white' : 'bg-surface2 text-muted hover:bg-line hover:text-ink'
         }`
       }
     >
       {icon}
+      {badge != null && badge > 0 && (
+        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -40,6 +46,12 @@ const ICONS = {
       <path d="M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  bell: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  ),
   settings: (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
@@ -52,6 +64,7 @@ const ICONS = {
 export default function AppShell() {
   const { profile } = useAuth();
   const { online } = usePresence();
+  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
@@ -68,6 +81,7 @@ export default function AppShell() {
         <div className="h-px w-8 bg-line" />
         <NavItem to="/app/communautes" label="Communautés" icon={ICONS.community} />
         <NavItem to="/app/amis" label="Amis" icon={ICONS.friends} />
+        <NavItem to="/app/notifications" label="Notifications" icon={ICONS.bell} badge={unreadCount} />
         <div className="flex-1" />
         <NavItem to="/app/parametres" label="Paramètres" icon={ICONS.settings} />
         <button

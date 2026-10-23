@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Logo from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,14 @@ export default function Login() {
   const [step, setStep] = useState<Step>('login');
   const [factorId, setFactorId] = useState('');
   const [challengeId, setChallengeId] = useState('');
+  const [disabledNotice, setDisabledNotice] = useState('');
+
+  useEffect(() => {
+    if (localStorage.getItem('kora-account-disabled') === '1') {
+      localStorage.removeItem('kora-account-disabled');
+      setDisabledNotice('Ce compte a été désactivé. Pour le réactiver ou le supprimer définitivement, contacte l’assistance via la page Contact.');
+    }
+  }, []);
   const [code, setCode] = useState('');
 
   const submitLogin = async (e: React.FormEvent) => {
@@ -108,6 +116,7 @@ export default function Login() {
                   />
                 </div>
                 {error && <p className="rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
+                {disabledNotice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm">{disabledNotice}</p>}
                 <button
                   type="submit" disabled={busy}
                   className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white hover:opacity-90 disabled:opacity-50"

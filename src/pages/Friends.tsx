@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { useFriends, type FriendEntry } from '../hooks/useFriends';
@@ -30,6 +30,11 @@ export default function Friends() {
   const navigate = useNavigate();
 
   const [tab, setTab] = useState<Tab>('amis');
+  const [params] = useSearchParams();
+  useEffect(() => {
+    const o = params.get('onglet');
+    if (o === 'amis' || o === 'recues' || o === 'envoyees' || o === 'bloques') setTab(o);
+  }, [params]);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<Profile | null | 'none'>(null);

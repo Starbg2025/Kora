@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
+import { containsMention, snippet } from '../lib/mentions';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
 import Modal from './Modal';
@@ -75,7 +77,8 @@ function AttachmentView({ path, name }: { path: string; name: string }) {
 
 /** Vue d'un salon textuel : messages temps réel, réactions, épinglés, pièces jointes. */
 export default function ChannelView({ communityId, channel, myRole, members, onToggleMembers, onBack }: Props) {
-  const { sb, user } = useAuth();
+  const { sb, user, profile } = useAuth();
+  const { notify } = useNotifications();
   const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
@@ -198,6 +201,18 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           return next;
         });
         if (nearBottom()) requestAnimationFrame(() => scrollToBottom());
+        // Déclencheur : mention @pseudo → notification pour le destinataire
+        if (m.author_id !== me && profile?.username && containsMention(m.content, profile.username)) {
+          sb.from('profiles')
+            .select('display_name, username')
+            .eq('id', m.author_id)
+            .maybeSingle()
+            .then(({ data }) => {
+              const p = data as { display_name: string; username: string } | null;
+              const name = p?.display_name || p?.username || 'Quelqu’un';
+              notify('mention', `${name} t’a mentionné dans #${channel.name}`, snippet(m.content), `/app/c/${communityId}/${channel.id}`);
+            });
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'community_messages', filter: `channel_id=eq.${channel.id}` }, (payload) => {
         const m = payload.new as CommunityMessage;
@@ -211,7 +226,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, channel.id, me, channelTag]);
+  }, [sb, channel.id, me, channelTag, notify, profile?.username, communityId, channel.name]);
 
   // Temps réel : réactions + épinglés (canal séparé)
   useEffect(() => {

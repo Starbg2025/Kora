@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
+import { useNotifications } from '../context/NotificationsContext';
 import Avatar from './Avatar';
 
 const chatIcon = (
@@ -23,18 +24,24 @@ const communitiesIcon = (
     <rect x="14" y="14" width="7" height="7" rx="1.5" />
   </svg>
 );
+const bellIcon = (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+  </svg>
+);
 
 /** Barre de navigation inférieure (mobile uniquement), façon application mobile. */
 export default function BottomNav() {
   const { profile } = useAuth();
   const { online } = usePresence();
+  const { unreadCount } = useNotifications();
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
 
   const item = (active: boolean) =>
-    `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${
+    `relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${
       active ? 'text-primary' : 'text-muted'
     }`;
-
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
@@ -51,6 +58,17 @@ export default function BottomNav() {
       <NavLink to="/app/communautes" className={({ isActive }) => item(isActive)} aria-label="Communautés">
         {communitiesIcon}
         Communautés
+      </NavLink>
+      <NavLink to="/app/notifications" className={({ isActive }) => item(isActive)} aria-label="Notifications">
+        <span className="relative">
+          {bellIcon}
+          {unreadCount > 0 && (
+            <span className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </span>
+        Notifs
       </NavLink>
       <NavLink
         to="/app/parametres?onglet=profil"
