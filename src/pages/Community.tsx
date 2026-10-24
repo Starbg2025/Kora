@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
 import CommunityMembers from '../components/CommunityMembers';
 import CommunitySettings from '../components/CommunitySettings';
+import ModerationPanel from '../components/ModerationPanel';
 import InviteModal from '../components/InviteModal';
 import type { ChannelOutletContext } from './ChannelRoute';
 import { normalizeChannelName } from '../lib/community';
@@ -47,6 +48,7 @@ export default function Community() {
   });
   const [membersDrawer, setMembersDrawer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showModeration, setShowModeration] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -74,6 +76,21 @@ export default function Community() {
 
   const me = user?.id ?? '';
   const isAdmin = myRole === 'proprietaire' || myRole === 'admin';
+  const canModerate = myRole === 'proprietaire' || myRole === 'admin' || myRole === 'moderateur';
+
+  const logAction = useCallback(
+    async (action: string, targetType: string, targetId: string | null, details: Record<string, unknown> = {}) => {
+      if (!communityId) return;
+      await sb.rpc('log_moderation_action', {
+        p_community: communityId,
+        p_action: action,
+        p_target_type: targetType,
+        p_target_id: targetId,
+        p_details: details,
+      });
+    },
+    [sb, communityId],
+  );
 
   const load = useCallback(async () => {
     if (!communityId || !me) return;
@@ -208,15 +225,20 @@ export default function Community() {
     try {
       const targetCat = newChannelCategory;
       const pos = (channelsByCategory.get(targetCat) ?? []).length;
-      const { error } = await sb.from('channels').insert({
-        community_id: communityId,
-        category_id: targetCat,
-        name: cleanName,
-        topic: newChannelTopic.trim().slice(0, 200),
-        type: newChannelType,
-        position: pos,
-      });
+      const { data: created, error } = await sb
+        .from('channels')
+        .insert({
+          community_id: communityId,
+          category_id: targetCat,
+          name: cleanName,
+          topic: newChannelTopic.trim().slice(0, 200),
+          type: newChannelType,
+          position: pos,
+        })
+        .select('id')
+        .single();
       if (error) throw error;
+      await logAction('channel_created', 'channel', (created as { id: string }).id, { name: cleanName });
       setShowChannelModal(null);
       setNewChannelName('');
       setNewChannelTopic('');
@@ -233,12 +255,17 @@ export default function Community() {
     if (!cleanName || !communityId) return;
     setBusy(true);
     try {
-      const { error } = await sb.from('channel_categories').insert({
-        community_id: communityId,
-        name: cleanName.slice(0, 60),
-        position: categories.length,
-      });
+      const { data: created, error } = await sb
+        .from('channel_categories')
+        .insert({
+          community_id: communityId,
+          name: cleanName.slice(0, 60),
+          position: categories.length,
+        })
+        .select('id')
+        .single();
       if (error) throw error;
+      await logAction('category_created', 'category', (created as { id: string }).id, { name: cleanName });
       setShowCategoryModal(false);
       setNewCategoryName('');
       load();
@@ -279,6 +306,7 @@ export default function Community() {
       flash(error.message);
       return;
     }
+    await logAction('channel_deleted', 'channel', ch.id, { name: ch.name });
     if (channelId === ch.id) navigate(`/app/c/${communityId}`);
     load();
   };
@@ -323,6 +351,7 @@ export default function Community() {
       flash(error.message);
       return;
     }
+    await logAction('category_deleted', 'category', cat.id, { name: cat.name });
     load();
   };
 
@@ -500,6 +529,14 @@ export default function Community() {
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                   >
                     <span>⚙️</span> Paramètres
+                  </button>
+                )}
+                {canModerate && (
+                  <button
+                    onClick={() => { setShowMenu(false); setShowModeration(true); }}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                  >
+                    <span>🛡️</span> Modération
                   </button>
                 )}
                 <div className="h-px bg-line" />
@@ -681,6 +718,19 @@ export default function Community() {
           me={me}
           onClose={() => setShowSettings(false)}
           onChanged={load}
+          flash={flash}
+          onOpenModeration={() => {
+            setShowSettings(false);
+            setShowModeration(true);
+          }}
+        />
+      )}
+
+      {showModeration && community && (
+        <ModerationPanel
+          communityId={community.id}
+          communityName={community.name}
+          onClose={() => setShowModeration(false)}
           flash={flash}
         />
       )}

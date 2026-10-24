@@ -224,3 +224,84 @@ export const ROLE_RANK: Record<CommunityRole, number> = {
   admin: 3,
   proprietaire: 4,
 };
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Modération
+// ---------------------------------------------------------------------------
+
+export type ReportReason = 'spam' | 'harcelement' | 'contenu_inapproprie' | 'autre';
+export type ReportStatus = 'nouveau' | 'en_cours' | 'resolu' | 'rejete';
+
+export interface Report {
+  id: string;
+  reporter_id: string;
+  community_id: string | null;
+  message_kind: 'dm' | 'channel';
+  message_id: string;
+  reported_user_id: string;
+  reason: ReportReason;
+  details: string;
+  status: ReportStatus;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface ServerBan {
+  id: string;
+  community_id: string;
+  user_id: string;
+  banned_by: string;
+  reason: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface ServerTimeout {
+  id: string;
+  community_id: string;
+  user_id: string;
+  moderator_id: string;
+  reason: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: string;
+  community_id: string;
+  actor_id: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+  spam: 'Spam',
+  harcelement: 'Harcèlement',
+  contenu_inapproprie: 'Contenu inapproprié',
+  autre: 'Autre',
+};
+
+export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
+  nouveau: 'Nouveau',
+  en_cours: 'En cours',
+  resolu: 'Résolu',
+  rejete: 'Rejeté',
+};
+
+export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  kick: 'Exclusion',
+  ban: 'Bannissement',
+  unban: 'Débannissement',
+  timeout: 'Timeout',
+  role_change: 'Changement de rôle',
+  report_resolved: 'Signalement traité',
+  channel_created: 'Salon créé',
+  channel_deleted: 'Salon supprimé',
+  category_created: 'Catégorie créée',
+  category_deleted: 'Catégorie supprimée',
+  transfer_ownership: 'Transfert de propriété',
+};

@@ -16,6 +16,7 @@ interface Props {
   onTogglePin: () => void;
   onCopyLink: () => void;
   onDelete: () => void;
+  onReport?: () => void;
   onClose: () => void;
 }
 
@@ -72,6 +73,7 @@ export default function MessageActionSheet(p: Props) {
           <Row onClick={p.onMarkUnread} icon="👁️">Marquer comme non lu</Row>
           <Row onClick={p.onTogglePin} icon="📌">{p.isPinned ? 'Désépingler le message' : 'Épingler le message'}</Row>
           <Row onClick={p.onCopyLink} icon="🔗">Copier le lien du message</Row>
+          {!p.isMe && p.onReport && <Row onClick={p.onReport} icon="🚩">Signaler</Row>}
           {p.isMe && <Row onClick={p.onDelete} icon="🗑️" danger>Supprimer le message</Row>}
         </Group>
       </div>

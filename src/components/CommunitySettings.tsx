@@ -11,10 +11,11 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   flash: (msg: string) => void;
+  onOpenModeration?: () => void;
 }
 
 /** Panneau de paramètres de la communauté (propriétaire / admin). */
-export default function CommunitySettings({ community, myRole, members, me, onClose, onChanged, flash }: Props) {
+export default function CommunitySettings({ community, myRole, members, me, onClose, onChanged, flash, onOpenModeration }: Props) {
   const { sb } = useAuth();
   const [name, setName] = useState(community.name);
   const [description, setDescription] = useState(community.description);
@@ -168,6 +169,15 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
           >
             {busy ? 'Enregistrement…' : 'Enregistrer'}
           </button>
+
+          {onOpenModeration && (
+            <button
+              onClick={onOpenModeration}
+              className="w-full rounded-xl bg-surface2 px-4 py-2.5 text-sm font-bold hover:bg-line"
+            >
+              🛡️ Ouvrir la modération (signalements, bannis, journal)
+            </button>
+          )}
 
           {isOwner && (
             <div className="rounded-2xl border border-danger/30 p-4">

@@ -9,6 +9,7 @@ import MessageToolbar from '../components/MessageToolbar';
 import EmojiPicker from '../components/EmojiPicker';
 import VoiceRecorder from '../components/VoiceRecorder';
 import MessageActionSheet from '../components/MessageActionSheet';
+import ReportModal from '../components/ReportModal';
 import ProfileCard from '../components/ProfileCard';
 import { formatDay, formatFull, formatTime } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
@@ -170,6 +171,7 @@ export default function Conversation() {
   const [showMenu, setShowMenu] = useState(false);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
   const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
+  const [reportTarget, setReportTarget] = useState<Message | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
   const [toast, setToast] = useState('');
@@ -1447,7 +1449,19 @@ export default function Conversation() {
           onTogglePin={() => togglePin(sheetMsg)}
           onCopyLink={() => copyMessageLink(sheetMsg)}
           onDelete={() => setDeleteTarget(sheetMsg)}
+          onReport={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}
           onClose={() => setSheetMsg(null)}
+        />
+      )}
+
+      {reportTarget && (
+        <ReportModal
+          messageKind="dm"
+          messageId={reportTarget.id}
+          reportedUserId={reportTarget.author_id}
+          communityId={null}
+          onClose={() => setReportTarget(null)}
+          onSent={(msg) => flash(msg)}
         />
       )}
 

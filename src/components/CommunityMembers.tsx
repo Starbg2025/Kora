@@ -34,6 +34,12 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
   const navigate = useNavigate();
   const [actingId, setActingId] = useState<string | null>(null);
   const [confirmKick, setConfirmKick] = useState<CommunityMember | null>(null);
+  const [banTarget, setBanTarget] = useState<CommunityMember | null>(null);
+  const [banReason, setBanReason] = useState('');
+  const [banDuration, setBanDuration] = useState<'1h' | '1j' | '7j' | 'definitif'>('7j');
+  const [timeoutTarget, setTimeoutTarget] = useState<CommunityMember | null>(null);
+  const [timeoutReason, setTimeoutReason] = useState('');
+  const [timeoutMinutes, setTimeoutMinutes] = useState(60);
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
 
   const myRank = myRole ? ROLE_RANK[myRole] : 0;
@@ -82,6 +88,54 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
       onChanged();
     } catch (err) {
       flash(err instanceof Error ? err.message : 'Exclusion impossible.');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const ban = async () => {
+    if (!banTarget) return;
+    setActingId(banTarget.user_id);
+    try {
+      const expires =
+        banDuration === 'definitif'
+          ? null
+          : new Date(Date.now() + (banDuration === '1h' ? 3600 : banDuration === '1j' ? 86400 : 7 * 86400) * 1000).toISOString();
+      const { error } = await sb.rpc('ban_member', {
+        p_community: communityId,
+        p_user: banTarget.user_id,
+        p_reason: banReason.trim(),
+        p_expires: expires,
+      });
+      if (error) throw error;
+      flash(`${banTarget.profiles?.display_name ?? 'Membre'} a été banni.`);
+      setBanTarget(null);
+      setBanReason('');
+      onChanged();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Bannissement impossible.');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const timeout = async () => {
+    if (!timeoutTarget) return;
+    setActingId(timeoutTarget.user_id);
+    try {
+      const { error } = await sb.rpc('timeout_member', {
+        p_community: communityId,
+        p_user: timeoutTarget.user_id,
+        p_reason: timeoutReason.trim(),
+        p_minutes: timeoutMinutes,
+      });
+      if (error) throw error;
+      flash(`${timeoutTarget.profiles?.display_name ?? 'Membre'} est en timeout.`);
+      setTimeoutTarget(null);
+      setTimeoutReason('');
+      onChanged();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Timeout impossible.');
     } finally {
       setActingId(null);
     }
@@ -163,6 +217,22 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
               title="Exclure"
             >
               Exclure
+            </button>
+            <button
+              disabled={actingId === m.user_id}
+              onClick={() => setTimeoutTarget(m)}
+              className="rounded-lg bg-surface2 px-2 py-1 text-xs font-semibold hover:bg-line disabled:opacity-50"
+              title="Mettre en timeout"
+            >
+              Timeout
+            </button>
+            <button
+              disabled={actingId === m.user_id}
+              onClick={() => setBanTarget(m)}
+              className="rounded-lg bg-surface2 px-2 py-1 text-xs font-semibold text-danger hover:bg-line disabled:opacity-50"
+              title="Bannir"
+            >
+              Bannir
             </button>
           </div>
         )}
@@ -253,6 +323,109 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
                 className="rounded-xl bg-danger px-5 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
               >
                 Exclure
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {banTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-2xl">
+            <h3 className="text-lg font-bold">Bannir {banTarget.profiles?.display_name} ?</h3>
+            <p className="mt-2 text-sm text-muted">
+              Le membre perd immédiatement l’accès à la communauté et ne pourra pas revenir tant que le
+              bannissement est actif.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Motif (optionnel)</label>
+                <input
+                  value={banReason}
+                  onChange={(e) => setBanReason(e.target.value)}
+                  maxLength={280}
+                  placeholder="ex. Spam répété"
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Durée</label>
+                <select
+                  value={banDuration}
+                  onChange={(e) => setBanDuration(e.target.value as typeof banDuration)}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+                >
+                  <option value="1h">1 heure</option>
+                  <option value="1j">1 jour</option>
+                  <option value="7j">7 jours</option>
+                  <option value="definitif">Définitif</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setBanTarget(null)}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={ban}
+                disabled={actingId === banTarget.user_id}
+                className="rounded-xl bg-danger px-5 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                Bannir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {timeoutTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-2xl">
+            <h3 className="text-lg font-bold">Timeout pour {timeoutTarget.profiles?.display_name} ?</h3>
+            <p className="mt-2 text-sm text-muted">
+              Le membre ne pourra plus écrire dans les salons jusqu’à l’expiration du timeout.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Motif (optionnel)</label>
+                <input
+                  value={timeoutReason}
+                  onChange={(e) => setTimeoutReason(e.target.value)}
+                  maxLength={280}
+                  placeholder="ex. Propos déplacés"
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Durée</label>
+                <select
+                  value={timeoutMinutes}
+                  onChange={(e) => setTimeoutMinutes(Number(e.target.value))}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+                >
+                  <option value={10}>10 minutes</option>
+                  <option value={60}>1 heure</option>
+                  <option value={1440}>1 jour</option>
+                  <option value={10080}>7 jours</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setTimeoutTarget(null)}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={timeout}
+                disabled={actingId === timeoutTarget.user_id}
+                className="rounded-xl bg-danger px-5 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                Appliquer le timeout
               </button>
             </div>
           </div>

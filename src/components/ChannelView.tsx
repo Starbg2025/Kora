@@ -6,8 +6,9 @@ import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
 import MessageToolbar from './MessageToolbar';
 import Modal from './Modal';
+import ReportModal from './ReportModal';
 import EmptyState from './EmptyState';
-import { formatDay, formatTime } from '../lib/format';
+import { formatDay, formatFull, formatTime } from '../lib/format';
 import {
   ROLE_COLORS,
   type Channel,
@@ -99,6 +100,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [editText, setEditText] = useState('');
   const [sheetMsg, setSheetMsg] = useState<CommunityMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<CommunityMessage | null>(null);
+  const [reportTarget, setReportTarget] = useState<CommunityMessage | null>(null);
+  const [myTimeoutUntil, setMyTimeoutUntil] = useState<string | null>(null);
   const [showPins, setShowPins] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -188,6 +191,20 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     setHasMore(true);
     load();
   }, [load]);
+
+  // Timeout actif pour moi dans cette communauté (bandeau au-dessus du compositeur)
+  useEffect(() => {
+    if (!communityId || !me) return;
+    sb.from('server_timeouts')
+      .select('expires_at')
+      .eq('community_id', communityId)
+      .eq('user_id', me)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle()
+      .then(({ data }) => {
+        setMyTimeoutUntil(data ? (data as { expires_at: string }).expires_at : null);
+      });
+  }, [sb, communityId, me]);
 
   // Temps réel : messages (canal dédié, topic unique par montage)
   useEffect(() => {
@@ -279,6 +296,18 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     setSending(true);
     setSendError('');
     try {
+      // Timeout actif ? (la policy RLS fait foi côté serveur ; ce contrôle
+      // donne juste un message clair au lieu d'une erreur générique)
+      const { data: toRow } = await sb
+        .from('server_timeouts')
+        .select('expires_at')
+        .eq('community_id', communityId)
+        .eq('user_id', me)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      if (toRow) {
+        throw new Error(`Tu es en timeout jusqu’au ${formatFull((toRow as { expires_at: string }).expires_at)}.`);
+      }
       let attachment_path: string | null = null;
       let attachment_name: string | null = null;
       if (file) {
@@ -617,6 +646,12 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           </div>
         )}
         {sendError && <p className="mb-2 rounded-xl bg-danger/10 px-3 py-2 text-xs text-danger">{sendError}</p>}
+        {myTimeoutUntil && (
+          <p className="mb-2 rounded-xl bg-danger/10 px-3 py-2 text-xs text-danger">
+            Tu es en timeout jusqu’au {formatFull(myTimeoutUntil)} : tu ne peux pas écrire dans les salons
+            de cette communauté pour le moment.
+          </p>
+        )}
         <div className="flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
           <button
             onClick={() => fileInput.current?.click()}
@@ -696,6 +731,17 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
         />
       )}
 
+      {reportTarget && (
+        <ReportModal
+          messageKind="channel"
+          messageId={reportTarget.id}
+          reportedUserId={reportTarget.author_id}
+          communityId={communityId}
+          onClose={() => setReportTarget(null)}
+          onSent={(msg) => flash(msg)}
+        />
+      )}
+
       {/* Fiche d'actions (appui long / clic droit) */}
       {sheetMsg && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Actions du message">
@@ -721,6 +767,9 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
               <SheetRow icon="💬" onClick={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}>Répondre</SheetRow>
               <SheetRow icon="📋" onClick={() => copyText(sheetMsg)}>Copier le texte</SheetRow>
               <SheetRow icon="🔗" onClick={() => copyLink(sheetMsg)}>Copier le lien</SheetRow>
+              {sheetMsg.author_id !== me && (
+                <SheetRow icon="🚩" onClick={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}>Signaler</SheetRow>
+              )}
               {canModerate && (
                 <SheetRow icon="📌" onClick={() => togglePin(sheetMsg)}>
                   {pinnedIds.has(sheetMsg.id) ? 'Désépingler' : 'Épingler le message'}
