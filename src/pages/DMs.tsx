@@ -12,7 +12,7 @@ import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { openDirectDM } from '../lib/dm';
 import { containsMention, snippet } from '../lib/mentions';
 import { useNotifications } from '../context/NotificationsContext';
-import type { DM, Friendship, Message, Profile } from '../lib/types';
+import { STATUS_LABELS, type DM, type Friendship, type Message, type Profile } from '../lib/types';
 
 export interface DMView {
   dm: DM;
@@ -22,7 +22,7 @@ export interface DMView {
   unread: number;
 }
 
-function GroupAvatar({ profiles, size = 44 }: { profiles: Profile[]; size?: number }) {
+function GroupAvatar({ profiles, size = 36 }: { profiles: Profile[]; size?: number }) {
   const shown = profiles.slice(0, 2);
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
@@ -82,6 +82,10 @@ export default function DMs() {
 
   const me = user?.id ?? '';
   const mutedIds = new Set(settings?.dm_mute ?? []);
+  const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
+  const pendingRequests = entries.filter(
+    (e) => e.friendship.status === 'pending' && e.friendship.addressee_id === me,
+  ).length;
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -352,16 +356,9 @@ export default function DMs() {
 
   return (
     <div className="flex h-full">
-      <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-80 md:shrink-0`}>
+      <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-60 md:shrink-0`}>
         <div className="flex items-center gap-2 px-4 pb-2 pt-4">
           <h1 className="flex-1 text-lg font-extrabold">Messages privés</h1>
-          <button
-            onClick={() => navigate('/app/amis')}
-            className="rounded-xl bg-surface2 px-3 py-1.5 text-xs font-bold hover:bg-line"
-            title="Ajouter des amis"
-          >
-            ＋ Amis
-          </button>
           <button
             onClick={() => navigate('/app/dm/nouveau')}
             className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white hover:opacity-90"
@@ -371,7 +368,7 @@ export default function DMs() {
             ＋
           </button>
         </div>
-        <div className="px-4 pb-3">
+        <div className="px-4 pb-2">
           <div className="flex items-center gap-2 rounded-xl bg-base px-3 py-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-muted">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
@@ -385,7 +382,26 @@ export default function DMs() {
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-2 pb-4">
+        <div className="space-y-0.5 px-2 pb-1">
+          <button
+            onClick={() => navigate('/app/amis')}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-surface2/60"
+          >
+            <span className="text-base">👥</span> Amis
+          </button>
+          <button
+            onClick={() => navigate('/app/amis?onglet=attente')}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-surface2/60"
+          >
+            <span className="text-base">📩</span> Demandes d’amis
+            {pendingRequests > 0 && (
+              <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-white">
+                {pendingRequests}
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {loading ? (
             <p className="px-4 py-8 text-center text-sm text-muted">Chargement…</p>
           ) : filtered.length === 0 ? (
@@ -419,7 +435,7 @@ export default function DMs() {
                     {v.dm.is_group ? (
                       <GroupAvatar profiles={v.others} />
                     ) : (
-                      <Avatar profile={v.others[0]} size={44} status={st} showStatus />
+                      <Avatar profile={v.others[0]} size={36} status={st} showStatus />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
@@ -448,6 +464,40 @@ export default function DMs() {
               );
             })
           )}
+        </div>
+        {/* Barre de compte fixe : avatar, nom, statut, micro, casque, paramètres */}
+        <div className="flex h-14 shrink-0 items-center gap-1 border-t border-line bg-surface px-2">
+          <Avatar profile={profile} size={36} status={myPresence} showStatus />
+          <div className="min-w-0 flex-1 px-1">
+            <p className="truncate text-sm font-bold">{profile?.display_name || profile?.username || 'Moi'}</p>
+            <p className="truncate text-[11px] text-muted">
+              {STATUS_LABELS[myPresence as keyof typeof STATUS_LABELS] ?? 'Hors ligne'}
+            </p>
+          </div>
+          <button
+            onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
+            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            title="Micro (appels vocaux bientôt disponibles)"
+            aria-label="Micro"
+          >
+            🎤
+          </button>
+          <button
+            onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
+            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            title="Casque (appels vocaux bientôt disponibles)"
+            aria-label="Casque"
+          >
+            🎧
+          </button>
+          <button
+            onClick={() => navigate('/app/parametres')}
+            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            title="Paramètres utilisateur"
+            aria-label="Paramètres utilisateur"
+          >
+            ⚙️
+          </button>
         </div>
       </aside>
       <section className={`${openDmId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 bg-base`}>

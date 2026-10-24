@@ -9,12 +9,12 @@ import Modal from '../components/Modal';
 import { STATUS_LABELS, type Profile } from '../lib/types';
 import { openDirectDM } from '../lib/dm';
 
-type Tab = 'amis' | 'recues' | 'envoyees' | 'bloques';
+type Tab = 'enligne' | 'tous' | 'attente' | 'bloques';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'amis', label: 'Amis' },
-  { id: 'recues', label: 'Demandes reçues' },
-  { id: 'envoyees', label: 'Demandes envoyées' },
+  { id: 'enligne', label: 'En ligne' },
+  { id: 'tous', label: 'Tous' },
+  { id: 'attente', label: 'En attente' },
   { id: 'bloques', label: 'Bloqués' },
 ];
 
@@ -29,11 +29,13 @@ export default function Friends() {
   const { entries, loading, reload } = useFriends();
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<Tab>('amis');
+  const [tab, setTab] = useState<Tab>('tous');
   const [params] = useSearchParams();
   useEffect(() => {
     const o = params.get('onglet');
-    if (o === 'amis' || o === 'recues' || o === 'envoyees' || o === 'bloques') setTab(o);
+    if (o === 'enligne' || o === 'tous' || o === 'attente' || o === 'bloques') setTab(o);
+    else if (o === 'amis') setTab('tous');
+    else if (o === 'recues' || o === 'envoyees') setTab('attente');
   }, [params]);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -45,8 +47,13 @@ export default function Friends() {
 
   const me = user?.id ?? '';
   const friends = entries.filter((e) => e.friendship.status === 'accepted');
+  const onlineFriends = friends.filter((e) => {
+    const st = online[e.profile.id]?.status ?? 'hors_ligne';
+    return st !== 'hors_ligne' && st !== 'invisible';
+  });
   const received = entries.filter((e) => e.friendship.status === 'pending' && e.friendship.addressee_id === me);
   const sent = entries.filter((e) => e.friendship.status === 'pending' && e.friendship.requester_id === me);
+  const pending = [...received, ...sent];
   const blocked = entries.filter((e) => e.friendship.status === 'blocked' && e.friendship.requester_id === me);
 
   const entryFor = (profileId: string) => entries.find((e) => e.profile.id === profileId);
@@ -165,7 +172,7 @@ export default function Friends() {
             @{p.username} · {presenceLabel(st)}
           </p>
         </div>
-        {tab === 'amis' && (
+        {tab === 'tous' && (
           <div className="flex gap-2">
             <button onClick={() => message(p)} disabled={busyId === p.id} className={`${btn} bg-surface2 hover:bg-line`}>
               Message
@@ -178,7 +185,20 @@ export default function Friends() {
             </button>
           </div>
         )}
-        {tab === 'recues' && (
+        {tab === 'enligne' && (
+          <div className="flex gap-2">
+            <button onClick={() => message(p)} disabled={busyId === p.id} className={`${btn} bg-surface2 hover:bg-line`}>
+              Message
+            </button>
+            <button onClick={() => setConfirmRemove(p)} className={`${btn} bg-surface2 text-muted hover:bg-line hover:text-ink`}>
+              Retirer
+            </button>
+            <button onClick={() => setConfirmBlock(p)} className={`${btn} bg-surface2 text-muted hover:bg-line hover:text-danger`}>
+              Bloquer
+            </button>
+          </div>
+        )}
+        {tab === 'attente' && e.friendship.addressee_id === me && (
           <div className="flex gap-2">
             <button onClick={() => accept(e)} disabled={busyId === p.id} className={`${btn} bg-primary text-white hover:opacity-90`}>
               Accepter
@@ -188,7 +208,7 @@ export default function Friends() {
             </button>
           </div>
         )}
-        {tab === 'envoyees' && (
+        {tab === 'attente' && e.friendship.requester_id === me && (
           <button onClick={() => removeRow(e)} disabled={busyId === p.id} className={`${btn} bg-surface2 text-muted hover:bg-line hover:text-ink`}>
             Annuler
           </button>
@@ -202,11 +222,11 @@ export default function Friends() {
     );
   };
 
-  const listForTab = tab === 'amis' ? friends : tab === 'recues' ? received : tab === 'envoyees' ? sent : blocked;
+  const listForTab = tab === 'enligne' ? onlineFriends : tab === 'tous' ? friends : tab === 'attente' ? pending : blocked;
   const emptyText: Record<Tab, { title: string; text: string }> = {
-    amis: { title: 'Aucun ami pour l’instant', text: 'Cherche un nom d’utilisateur ci-dessus pour envoyer ta première demande d’ami.' },
-    recues: { title: 'Aucune demande reçue', text: 'Quand quelqu’un t’ajoutera, sa demande apparaîtra ici.' },
-    envoyees: { title: 'Aucune demande envoyée', text: 'Les demandes que tu envoies apparaîtront ici en attendant la réponse.' },
+    enligne: { title: 'Aucun ami en ligne', text: 'Tes amis connectés apparaîtront ici.' },
+    tous: { title: 'Aucun ami pour l’instant', text: 'Cherche un nom d’utilisateur ci-dessus pour envoyer ta première demande d’ami.' },
+    attente: { title: 'Aucune demande en attente', text: 'Les demandes reçues et envoyées apparaîtront ici.' },
     bloques: { title: 'Aucun utilisateur bloqué', text: 'Les personnes bloquées ne peuvent plus te contacter ni voir ton statut.' },
   };
 
@@ -269,7 +289,7 @@ export default function Friends() {
         {notice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-2.5 text-sm">{notice}</p>}
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
           {TABS.map((t) => {
-            const count = t.id === 'amis' ? friends.length : t.id === 'recues' ? received.length : t.id === 'envoyees' ? sent.length : blocked.length;
+            const count = t.id === 'enligne' ? onlineFriends.length : t.id === 'tous' ? friends.length : t.id === 'attente' ? pending.length : blocked.length;
             return (
               <button
                 key={t.id}

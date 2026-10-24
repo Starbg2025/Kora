@@ -4,6 +4,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { containsMention, snippet } from '../lib/mentions';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
+import MessageToolbar from './MessageToolbar';
 import Modal from './Modal';
 import EmptyState from './EmptyState';
 import { formatDay, formatTime } from '../lib/format';
@@ -97,6 +98,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [sheetMsg, setSheetMsg] = useState<CommunityMessage | null>(null);
+  const [reactionTarget, setReactionTarget] = useState<CommunityMessage | null>(null);
   const [showPins, setShowPins] = useState(false);
   const [toast, setToast] = useState('');
 
@@ -424,8 +426,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-base">
-      {/* En-tête du salon */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 py-2.5">
+      {/* En-tête du salon (48 px) */}
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
         <button onClick={onBack} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:hidden" aria-label="Retour aux salons">
           ←
         </button>
@@ -504,7 +506,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                     onTouchStart={() => pressStart(m)}
                     onTouchEnd={pressEnd}
                     onTouchMove={pressEnd}
-                    className="group flex gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-surface/60"
+                    className="group relative flex gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-surface/60"
                   >
                     {!compact ? (
                       <Avatar profile={author ?? null} size={40} />
@@ -577,33 +579,19 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                         </div>
                       )}
                     </div>
-                    <div className="hidden shrink-0 items-start gap-1 group-hover:flex md:flex">
-                      <button
-                        onClick={() => toggleReaction(m.id, '👍')}
-                        className="rounded-md px-1.5 py-0.5 text-muted hover:bg-surface2"
-                        title="Réagir 👍"
-                      >
-                        👍
-                      </button>
-                      <button
-                        onClick={() => setReplyTo(m)}
-                        className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                        title="Répondre"
-                      >
-                        Répondre
-                      </button>
-                      {(isMe || canModerate) && (
-                        <button
-                          onClick={() => {
-                            if (window.confirm('Supprimer ce message ?')) deleteMessage(m);
-                          }}
-                          className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-danger"
-                          title="Supprimer"
-                        >
-                          Supprimer
-                        </button>
-                      )}
-                    </div>
+                    {/* Barre d'actions flottante au survol (bureau) */}
+                    <MessageToolbar
+                      onReact={() => setReactionTarget(m)}
+                      onReply={() => setReplyTo(m)}
+                      onCopyLink={() => copyLink(m)}
+                      canEdit={isMe}
+                      onEdit={() => { setEditingId(m.id); setEditText(m.content); }}
+                      canDelete={isMe || canModerate}
+                      onDelete={() => {
+                        if (window.confirm('Supprimer ce message ?')) deleteMessage(m);
+                      }}
+                      onMore={() => setSheetMsg(m)}
+                    />
                   </div>
                 </div>
               );
@@ -695,6 +683,16 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             setShowEmoji(false);
           }}
           onClose={() => setShowEmoji(false)}
+        />
+      )}
+
+      {reactionTarget && (
+        <EmojiPicker
+          onPick={(e) => {
+            toggleReaction(reactionTarget.id, e);
+            setReactionTarget(null);
+          }}
+          onClose={() => setReactionTarget(null)}
         />
       )}
 

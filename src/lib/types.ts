@@ -164,7 +164,7 @@ export interface Channel {
   category_id: string | null;
   name: string;
   topic: string;
-  type: 'text';
+  type: 'text' | 'voice';
   position: number;
   created_at: string;
 }

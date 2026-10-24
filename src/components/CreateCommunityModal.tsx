@@ -73,7 +73,7 @@ export default function CreateCommunityModal({ onClose, onCreated }: Props) {
   };
 
   return (
-    <Modal title="Créer une communauté" onClose={onClose}>
+    <Modal title="Créer une communauté" onClose={onClose} maxWidth="max-w-[480px]">
       <div className="space-y-4">
         <div className="flex items-center gap-4">
           <button
@@ -130,7 +130,7 @@ export default function CreateCommunityModal({ onClose, onCreated }: Props) {
           />
         </div>
         {error && <p className="rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-between">
           <button
             onClick={onClose}
             className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2"

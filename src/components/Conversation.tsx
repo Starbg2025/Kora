@@ -5,6 +5,7 @@ import { usePresence } from '../context/PresenceContext';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
+import MessageToolbar from '../components/MessageToolbar';
 import EmojiPicker from '../components/EmojiPicker';
 import VoiceRecorder from '../components/VoiceRecorder';
 import MessageActionSheet from '../components/MessageActionSheet';
@@ -168,6 +169,7 @@ export default function Conversation() {
   const [panelTab, setPanelTab] = useState<'membres' | 'medias' | 'epingles'>('membres');
   const [showMenu, setShowMenu] = useState(false);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
+  const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
   const [toast, setToast] = useState('');
@@ -841,9 +843,9 @@ export default function Conversation() {
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* En-tête façon Discord */}
-        <div className="border-b border-line px-2 py-2 md:px-4 md:py-3">
-          <div className="flex items-center gap-1">
+        {/* En-tête façon Discord (48 px) */}
+        <div className="border-b border-line px-2 md:px-4">
+          <div className="flex h-12 items-center gap-1">
             <button
               onClick={() => navigate('/app/dm')}
               className="shrink-0 rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink md:hidden"
@@ -893,6 +895,14 @@ export default function Conversation() {
               aria-label="Rechercher"
             >
               {searchIcon}
+            </button>
+            <button
+              onClick={() => { setPanelTab('membres'); setShowPanel((s) => !s); }}
+              className={`shrink-0 rounded-lg p-2.5 ${showPanel && panelTab === 'membres' ? 'bg-surface2 text-ink' : 'text-muted hover:bg-surface2 hover:text-ink'}`}
+              title="Membres et infos"
+              aria-label="Membres et infos"
+            >
+              👥
             </button>
             <div className="relative hidden shrink-0 md:block">
               <button
@@ -1025,7 +1035,7 @@ export default function Conversation() {
                     onTouchStart={() => startPress(m)}
                     onTouchEnd={endPress}
                     onTouchMove={endPress}
-                    className={`msg group flex select-none gap-3 rounded-lg px-2 py-1 ${compact ? 'mt-0.5' : 'mt-3'} ${
+                    className={`msg group relative flex select-none gap-3 rounded-lg px-2 py-1 ${compact ? 'mt-0.5' : 'mt-3'} ${
                       highlightId === m.id ? 'bg-accent/15' : 'hover:bg-surface/60'
                     }`}
                   >
@@ -1112,33 +1122,17 @@ export default function Conversation() {
                         </div>
                       )}
                     </div>
-                    <div className="hidden shrink-0 items-start gap-1 group-hover:flex md:flex">
-                      <button
-                        onClick={() => setReplyTo(m)}
-                        className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                        title="Répondre"
-                      >
-                        Répondre
-                      </button>
-                      {isMe && editingId !== m.id && (
-                        <>
-                          <button
-                            onClick={() => { setEditingId(m.id); setEditText(m.content); }}
-                            className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-ink"
-                            title="Modifier"
-                          >
-                            Modifier
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(m)}
-                            className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-danger"
-                            title="Supprimer"
-                          >
-                            Supprimer
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {/* Barre d'actions flottante au survol (bureau) */}
+                    <MessageToolbar
+                      onReact={() => setReactionTarget(m)}
+                      onReply={() => setReplyTo(m)}
+                      onCopyLink={() => copyMessageLink(m)}
+                      canEdit={isMe}
+                      onEdit={() => { setEditingId(m.id); setEditText(m.content); }}
+                      canDelete={isMe}
+                      onDelete={() => setDeleteTarget(m)}
+                      onMore={() => setSheetMsg(m)}
+                    />
                   </div>
                 </div>
               );
@@ -1427,6 +1421,16 @@ export default function Conversation() {
       )}
 
       {showEmoji && <EmojiPicker onPick={(e) => insertEmoji(e)} onClose={() => setShowEmoji(false)} />}
+
+      {reactionTarget && (
+        <EmojiPicker
+          onPick={(e) => {
+            toggleReaction(reactionTarget.id, e);
+            setReactionTarget(null);
+          }}
+          onClose={() => setReactionTarget(null)}
+        />
+      )}
 
       {sheetMsg && (
         <MessageActionSheet

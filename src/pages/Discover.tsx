@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import EmptyState from '../components/EmptyState';
+import Modal from '../components/Modal';
+import { formatDate } from '../lib/format';
 import type { Community } from '../lib/types';
 
 interface DiscoverRow extends Community {
@@ -20,6 +22,7 @@ export default function Discover() {
   const [loading, setLoading] = useState(true);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [details, setDetails] = useState<DiscoverRow | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -63,7 +66,7 @@ export default function Discover() {
   const filtered = q ? rows.filter((r) => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)) : rows;
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-6">
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col px-4 py-6">
       <h1 className="text-2xl font-extrabold">Découvrir des communautés</h1>
       <p className="mt-1 text-sm text-muted">Des espaces publics créés par la communauté Kora.</p>
       <input
@@ -87,9 +90,9 @@ export default function Discover() {
           />
         </div>
       ) : (
-        <ul className="mt-4 space-y-2 overflow-y-auto pb-4">
+        <ul className="mt-4 grid grid-cols-1 gap-3 overflow-y-auto pb-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((c) => (
-            <li key={c.id} className="flex items-center gap-4 rounded-2xl bg-surface p-4">
+            <li key={c.id} className="flex flex-col rounded-2xl bg-surface p-4">
               {c.icon_url ? (
                 <img src={c.icon_url} alt={c.name} className="h-14 w-14 rounded-2xl object-cover" />
               ) : (
@@ -97,25 +100,81 @@ export default function Discover() {
                   {c.name.trim()[0]?.toUpperCase() ?? '?'}
                 </div>
               )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-bold">{c.name}</p>
-                {c.description && <p className="truncate text-sm text-muted">{c.description}</p>}
-                <p className="mt-0.5 text-xs text-muted">
-                  {c.member_count} membre{c.member_count > 1 ? 's' : ''}
-                </p>
+              <p className="mt-3 truncate font-bold">{c.name}</p>
+              {c.description ? (
+                <p className="mt-0.5 line-clamp-2 min-h-10 text-sm text-muted">{c.description}</p>
+              ) : (
+                <p className="mt-0.5 min-h-10 text-sm italic text-muted">Aucune description.</p>
+              )}
+              <p className="mt-2 text-xs text-muted">
+                {c.member_count} membre{c.member_count > 1 ? 's' : ''}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => setDetails(c)}
+                  className="flex-1 rounded-xl bg-surface2 px-3 py-2 text-sm font-bold hover:bg-line"
+                >
+                  Détails
+                </button>
+                <button
+                  onClick={() => join(c)}
+                  disabled={joiningId === c.id}
+                  className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold disabled:opacity-50 ${
+                    c.already_member ? 'bg-surface2 hover:bg-line' : 'bg-primary text-white hover:opacity-90'
+                  }`}
+                >
+                  {joiningId === c.id ? '…' : c.already_member ? 'Ouvrir' : 'Rejoindre'}
+                </button>
               </div>
-              <button
-                onClick={() => join(c)}
-                disabled={joiningId === c.id}
-                className={`shrink-0 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50 ${
-                  c.already_member ? 'bg-surface2 hover:bg-line' : 'bg-primary text-white hover:opacity-90'
-                }`}
-              >
-                {joiningId === c.id ? '…' : c.already_member ? 'Ouvrir' : 'Rejoindre'}
-              </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {details && (
+        <Modal title={details.name} onClose={() => setDetails(null)} maxWidth="max-w-[480px]">
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              {details.icon_url ? (
+                <img src={details.icon_url} alt={details.name} className="h-16 w-16 rounded-2xl object-cover" />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-3xl font-extrabold text-primary">
+                  {details.name.trim()[0]?.toUpperCase() ?? '?'}
+                </div>
+              )}
+              <div>
+                <p className="text-sm text-muted">
+                  {details.member_count} membre{details.member_count > 1 ? 's' : ''}
+                </p>
+                <p className="text-sm text-muted">Créée le {formatDate(details.created_at)}</p>
+              </div>
+            </div>
+            {details.description ? (
+              <p className="whitespace-pre-wrap text-sm">{details.description}</p>
+            ) : (
+              <p className="text-sm italic text-muted">Aucune description.</p>
+            )}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setDetails(null)}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2"
+              >
+                Fermer
+              </button>
+              <button
+                onClick={() => {
+                  const c = details;
+                  setDetails(null);
+                  join(c);
+                }}
+                disabled={joiningId === details.id}
+                className="rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {details.already_member ? 'Ouvrir' : 'Rejoindre'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

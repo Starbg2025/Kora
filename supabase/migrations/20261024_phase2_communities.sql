@@ -48,7 +48,7 @@ create table if not exists public.channels (
   category_id uuid references public.channel_categories(id) on delete set null,
   name text not null check (char_length(trim(name)) between 1 and 40),
   topic text not null default '',
-  type text not null default 'text' check (type = 'text'),
+  type text not null default 'text' check (type in ('text', 'voice')),
   position int not null default 0,
   created_at timestamptz not null default now()
 );
