@@ -42,16 +42,22 @@ export default function ModerationPanel({ communityId, communityName, onClose, f
   const [profilesById, setProfilesById] = useState<Map<string, Profile>>(new Map());
   const [statusFilter, setStatusFilter] = useState<'tous' | ReportStatus>('tous');
   const [loading, setLoading] = useState(true);
+  const [missingMigration, setMissingMigration] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const nowIso = new Date().toISOString();
-    const [{ data: repRows }, { data: banRows }, { data: toRows }, { data: logRows }] = await Promise.all([
+    const [{ data: repRows, error: repErr }, { data: banRows }, { data: toRows }, { data: logRows }] = await Promise.all([
       sb.from('reports').select('*').eq('community_id', communityId).order('created_at', { ascending: false }).limit(200),
       sb.from('server_bans').select('*').eq('community_id', communityId).order('created_at', { ascending: false }),
       sb.from('server_timeouts').select('*').eq('community_id', communityId).gt('expires_at', nowIso).order('expires_at'),
       sb.from('audit_logs').select('*').eq('community_id', communityId).order('created_at', { ascending: false }).limit(200),
     ]);
+    // Tables absentes = migration non exécutée : le dire clairement au lieu
+    // d'afficher des listes vides trompeuses.
+    if (repErr && (repErr.code === 'PGRST205' || /does not exist|relation/i.test(repErr.message))) {
+      setMissingMigration(true);
+    }
     const reps = (repRows ?? []) as Report[];
     const banList = (banRows ?? []) as ServerBan[];
     const toList = (toRows ?? []) as ServerTimeout[];
@@ -182,6 +188,15 @@ export default function ModerationPanel({ communityId, communityName, onClose, f
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {loading ? (
             <p className="py-8 text-center text-sm text-muted">Chargement…</p>
+          ) : missingMigration ? (
+            <div className="rounded-2xl bg-danger/10 p-4">
+              <p className="text-sm font-bold text-danger">Modération indisponible</p>
+              <p className="mt-1 text-sm text-muted">
+                Exécute la migration <span className="font-mono text-xs">20261025_moderation.sql</span> dans
+                l’éditeur SQL Supabase pour activer les signalements, bannissements, timeouts et le journal
+                d’audit.
+              </p>
+            </div>
           ) : tab === 'signalements' ? (
             <div className="space-y-3">
               <div className="flex gap-1 overflow-x-auto">
