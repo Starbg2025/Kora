@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChannelView from '../components/ChannelView';
+import VoiceChannel from '../components/VoiceChannel';
 import type { Channel, CommunityMember, CommunityRole } from '../lib/types';
 
 export interface ChannelOutletContext {
@@ -48,23 +49,9 @@ export default function ChannelRoute() {
     );
   }
 
-  // Salons vocaux : créés en base et listés, mais l'audio arrive dans une phase ultérieure.
+  // Salons vocaux : vocal de groupe en mesh WebRTC (voir VoiceChannel).
   if (channel.type === 'voice') {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-base px-6 text-center">
-        <span className="text-5xl">🔊</span>
-        <h2 className="text-xl font-extrabold">Salon vocal « {channel.name} »</h2>
-        <p className="max-w-sm text-sm text-muted">
-          Les salons vocaux arrivent avec la prochaine mise à jour de Kora. Tu peux déjà les créer et les organiser.
-        </p>
-        <button
-          onClick={() => navigate(`/app/c/${communityId}`)}
-          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90"
-        >
-          Retour aux salons
-        </button>
-      </div>
-    );
+    return <VoiceChannel channel={channel} members={ctx.members} onBack={() => navigate(`/app/c/${communityId}`)} />;
   }
 
   return (

@@ -39,7 +39,7 @@ interface InviteRow {
 }
 
 interface SignalPayload {
-  type: 'ready' | 'offer' | 'answer' | 'ice' | 'end';
+  type: 'ready' | 'offer' | 'answer' | 'ice' | 'end' | 'screen' | 'screen-stop';
   from: string;
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -66,6 +66,7 @@ function minimalProfile(id: string): Profile {
     custom_status_expires_at: null,
     created_at: '',
     banner_color: null,
+    banner_url: null,
     is_disabled: false,
     is_verified: false,
     is_site_admin: false,
@@ -90,6 +91,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState('');
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  // Partage d'écran : flux écran local partagé, flux écran distant reçu.
+  const [sharing, setSharing] = useState(false);
+  const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
 
   const me = user?.id ?? '';
   const phaseRef = useRef<Phase>('idle');
@@ -112,6 +116,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteScreenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const expectingScreenRef = useRef(false);
+  const screenSenderRef = useRef<RTCRtpSender | null>(null);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   phaseRef.current = phase;
   ringMutedRef.current = ringMuted;
@@ -169,8 +179,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const stopTracks = useCallback(() => {
     localRef.current?.getTracks().forEach((t) => t.stop());
     localRef.current = null;
+    screenTrackRef.current?.stop();
+    screenTrackRef.current = null;
+    screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    screenStreamRef.current = null;
+    screenSenderRef.current = null;
+    remoteStreamRef.current = null;
+    expectingScreenRef.current = false;
     setLocalStream(null);
     setRemoteStream(null);
+    setRemoteScreenStream(null);
+    setSharing(false);
   }, []);
 
   const clearTimers = useCallback(() => {
@@ -253,7 +272,38 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (e.candidate) sendSignal({ type: 'ice', candidate: e.candidate.toJSON() });
     };
     pc.ontrack = (e) => {
-      if (e.streams[0]) setRemoteStream(e.streams[0]);
+      const stream = e.streams[0];
+      if (!stream) return;
+      const cur = remoteStreamRef.current;
+      // Flux écran : annoncé par le signal 'screen', ou (repli) vidéo alors
+      // que le flux distant a déjà une vidéo (caméra) — jamais deviné sinon.
+      if (
+        e.track.kind === 'video' &&
+        (expectingScreenRef.current || (cur && cur.getVideoTracks().length > 0 && stream.id !== cur.id))
+      ) {
+        setRemoteScreenStream(stream);
+        e.track.onended = () => {
+          expectingScreenRef.current = false;
+          setRemoteScreenStream((s) => (s === stream ? null : s));
+        };
+      } else {
+        remoteStreamRef.current = stream;
+        setRemoteStream(stream);
+      }
+    };
+    // Renégociation (partage d'écran) : seulement en appel actif déjà négocié,
+    // jamais pendant l'offre initiale (les deux descriptions existent déjà).
+    pc.onnegotiationneeded = async () => {
+      try {
+        if (phaseRef.current !== 'active') return;
+        if (pc.signalingState !== 'stable') return;
+        if (!pc.localDescription || !pc.remoteDescription) return;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({ type: 'offer', sdp: offer });
+      } catch {
+        /* la prochaine négociation reprendra */
+      }
     };
     pcRef.current = pc;
     return pc;
@@ -294,11 +344,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             }
             break;
           case 'offer':
-            // Offre de l'appelant : traitée une seule fois (avant toute
-            // description distante). L'appelé est déjà en phase 'active'
-            // (écran d'appel affiché dès l'acceptation) : on ne filtre donc
-            // pas sur la phase, mais sur l'absence de remoteDescription.
-            if (payload.sdp && pcRef.current && !pcRef.current.remoteDescription) {
+            // Offre initiale ou renégociation (partage d'écran) : acceptée
+            // seulement à l'état stable, jamais en pleine négociation.
+            if (payload.sdp && pcRef.current && pcRef.current.signalingState === 'stable') {
               pcRef.current
                 .setRemoteDescription(new RTCSessionDescription(payload.sdp))
                 .then(async () => {
@@ -314,16 +362,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
             }
             break;
           case 'answer':
-            if (cur === 'outgoing' && payload.sdp && pcRef.current) {
+            if (payload.sdp && pcRef.current && (cur === 'outgoing' || cur === 'active')) {
               pcRef.current
                 .setRemoteDescription(new RTCSessionDescription(payload.sdp))
                 .then(() => {
-                  if (noAnswerTimer.current) window.clearTimeout(noAnswerTimer.current);
-                  setPhase('active');
-                  startTimer();
+                  if (cur === 'outgoing') {
+                    if (noAnswerTimer.current) window.clearTimeout(noAnswerTimer.current);
+                    setPhase('active');
+                    startTimer();
+                  }
                 })
                 .catch(() => {});
             }
+            break;
+          case 'screen':
+            // Le pair commence un partage : la prochaine piste vidéo est son écran.
+            expectingScreenRef.current = true;
+            break;
+          case 'screen-stop':
+            expectingScreenRef.current = false;
+            setRemoteScreenStream(null);
             break;
           case 'ice':
             if (payload.candidate) {
@@ -563,6 +621,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
   }, [localStream, phase, minimized]);
+  useEffect(() => {
+    if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = remoteScreenStream;
+  }, [remoteScreenStream, phase, minimized]);
 
   const toggleMute = () => {
     const next = !muted;
@@ -578,6 +639,51 @@ export function CallProvider({ children }: { children: ReactNode }) {
       t.enabled = !next;
     });
   };
+
+  // --- Partage d'écran (getDisplayMedia, choix onglet/fenêtre/écran laissé au navigateur) ---
+  const stopSharing = useCallback(
+    (notify = true) => {
+      const pc = pcRef.current;
+      if (screenSenderRef.current && pc) {
+        try {
+          pc.removeTrack(screenSenderRef.current);
+        } catch {
+          /* déjà retiré */
+        }
+      }
+      screenSenderRef.current = null;
+      screenTrackRef.current?.stop();
+      screenTrackRef.current = null;
+      screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+      if (notify) sendSignal({ type: 'screen-stop' });
+      setSharing(false);
+    },
+    [sendSignal],
+  );
+
+  const startSharing = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || phaseRef.current !== 'active') return;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const track = stream.getVideoTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      screenStreamRef.current = stream;
+      screenTrackRef.current = track;
+      screenSenderRef.current = pc.addTrack(track, stream);
+      // Annoncé avant la renégociation : le pair saura que la piste vidéo est un écran.
+      sendSignal({ type: 'screen' });
+      setSharing(true);
+      // L'utilisateur coupe depuis la barre du navigateur → arrêt propre ici aussi.
+      track.onended = () => stopSharing();
+    } catch {
+      flash('Partage d’écran annulé ou refusé par le navigateur.');
+    }
+  }, [flash, sendSignal, stopSharing]);
 
   const fmtElapsed = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
   const peerName = peer?.display_name || peer?.username || 'Utilisateur';
@@ -725,7 +831,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {phase === 'active' && !minimized && peer && (
         <div className="fixed inset-0 z-[70] flex flex-col bg-black" role="dialog" aria-label="En appel">
           <div className="relative min-h-0 flex-1">
-            {kind === 'video' ? (
+            {remoteScreenStream ? (
+              <div className="flex h-full flex-col bg-black">
+                <video ref={remoteScreenVideoRef} autoPlay playsInline className="min-h-0 w-full flex-1 object-contain" />
+                <p className="shrink-0 py-2 text-center text-sm text-white/80">Écran partagé par {peerName}</p>
+              </div>
+            ) : kind === 'video' ? (
               <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4">
@@ -733,6 +844,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 <p className="text-xl font-extrabold text-white">{peerName}</p>
                 <p className="text-white/70">Appel vocal en cours</p>
                 <audio ref={remoteAudioRef} autoPlay />
+              </div>
+            )}
+            {sharing && (
+              <div className="absolute bottom-4 left-4 rounded-full bg-primary px-4 py-2 text-sm font-bold text-white shadow-lg">
+                Tu partages ton écran
               </div>
             )}
             {kind === 'video' && localStream && (
@@ -748,6 +864,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
               <p className="font-bold text-white">{peerName}</p>
               <div className="flex items-center gap-3">
                 <p className="font-mono text-white/90">{fmtElapsed}</p>
+                {remoteScreenStream && (
+                  <button
+                    onClick={() => remoteScreenVideoRef.current?.requestFullscreen?.().catch(() => {})}
+                    className="rounded-full bg-black/40 px-3 py-1.5 text-sm font-bold text-white hover:bg-black/60"
+                    aria-label="Plein écran"
+                    title="Plein écran"
+                  >
+                    ⛶ Plein écran
+                  </button>
+                )}
                 <button
                   onClick={() => setMinimized(true)}
                   className="rounded-full bg-black/40 px-3 py-1.5 text-sm font-bold text-white hover:bg-black/60"
@@ -778,6 +904,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 {cameraOff ? '🚫' : '📹'}
               </button>
             )}
+            <button
+              onClick={() => (sharing ? stopSharing() : void startSharing())}
+              className={`flex h-14 w-14 items-center justify-center rounded-full text-xl text-white ${sharing ? 'bg-primary' : 'bg-white/20 hover:bg-white/30'}`}
+              aria-label={sharing ? 'Arrêter le partage d’écran' : 'Partager l’écran'}
+              title={sharing ? 'Arrêter le partage d’écran' : 'Partager l’écran'}
+            >
+              🖥️
+            </button>
             <button
               onClick={() => endCall('termine', true)}
               className="flex h-14 w-14 items-center justify-center rounded-full bg-danger text-xl text-white hover:opacity-90"

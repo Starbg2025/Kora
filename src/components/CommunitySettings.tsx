@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../context/AuthContext';
-import type { Community, CommunityMember, CommunityRole, CustomSticker } from '../lib/types';
+import { invalidateCustomEmojis } from '../lib/emojis';
+import type { Community, CommunityMember, CommunityRole, CustomEmoji, CustomSticker } from '../lib/types';
 
 interface Props {
   community: Community;
@@ -118,6 +119,100 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
     await sb.storage.from('stickers').remove([s.image_path]).catch(() => {});
     flash('Autocollant supprimé.');
     await loadStickers();
+  };
+
+  // Émojis personnalisés du serveur (import par propriétaire/admin ; les
+  // anciens messages affichent :nom: en texte si l'émoji est supprimé).
+  const canManageEmojis = myRole === 'proprietaire' || myRole === 'admin';
+  const [emojis, setEmojis] = useState<CustomEmoji[]>([]);
+  const [emojiName, setEmojiName] = useState('');
+  const [emojiFile, setEmojiFile] = useState<File | null>(null);
+  const [emojiBusy, setEmojiBusy] = useState(false);
+  const [renamingEmoji, setRenamingEmoji] = useState<string | null>(null);
+  const [renameEmojiValue, setRenameEmojiValue] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const emojiFileRef = useRef<HTMLInputElement>(null);
+
+  const loadEmojis = async () => {
+    const { data, error } = await sb.from('custom_emojis').select('*').eq('community_id', community.id).order('created_at', { ascending: false });
+    if (error) return;
+    setEmojis((data ?? []) as CustomEmoji[]);
+  };
+
+  useEffect(() => {
+    loadEmojis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [community.id]);
+
+  const pickEmojiFile = (f: File | null) => {
+    if (!f) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(f.type)) {
+      flash('Format invalide : PNG, JPG, WebP ou GIF uniquement.');
+      return;
+    }
+    if (f.size > 1024 * 1024) {
+      flash('Fichier trop lourd : 1 Mo maximum.');
+      return;
+    }
+    setEmojiFile(f);
+  };
+
+  const importEmoji = async () => {
+    const name = emojiName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!emojiFile || name.length < 2) {
+      flash('Choisis un fichier et un nom (2 caractères minimum).');
+      return;
+    }
+    setEmojiBusy(true);
+    try {
+      const ext = emojiFile.type === 'image/gif' ? 'gif' : emojiFile.type === 'image/jpeg' ? 'jpg' : emojiFile.type === 'image/webp' ? 'webp' : 'png';
+      const path = `${community.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('emojis').upload(path, emojiFile);
+      if (upErr) throw upErr;
+      const { error } = await sb.from('custom_emojis').insert({
+        community_id: community.id,
+        name,
+        image_path: path,
+        animated: emojiFile.type === 'image/gif',
+        created_by: me,
+      });
+      if (error) throw error;
+      setEmojiName('');
+      setEmojiFile(null);
+      flash('Émoji importé : tape :' + name + ': dans un message pour l’envoyer.');
+      invalidateCustomEmojis();
+      await loadEmojis();
+      onChanged();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Import impossible.');
+    } finally {
+      setEmojiBusy(false);
+    }
+  };
+
+  const renameEmoji = async (e: CustomEmoji) => {
+    const name = renameEmojiValue.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (name.length < 2) {
+      flash('Nom invalide (2 caractères minimum).');
+      return;
+    }
+    const { error } = await sb.from('custom_emojis').update({ name }).eq('id', e.id);
+    if (error) {
+      flash('Renommage impossible (nom déjà utilisé ?).');
+      return;
+    }
+    setRenamingEmoji(null);
+    invalidateCustomEmojis();
+    await loadEmojis();
+  };
+
+  const deleteEmoji = async (e: CustomEmoji) => {
+    if (!window.confirm(`Supprimer l’émoji « :${e.name}: » ? Les anciens messages afficheront :${e.name}: en texte.`)) return;
+    await sb.from('custom_emojis').delete().eq('id', e.id);
+    await sb.storage.from('emojis').remove([e.image_path]).catch(() => {});
+    flash('Émoji supprimé.');
+    invalidateCustomEmojis();
+    await loadEmojis();
   };
 
   const isOwner = myRole === 'proprietaire';
@@ -350,6 +445,108 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
               </ul>
             )}
           </div>
+
+          {canManageEmojis && (
+            <div className="rounded-2xl border border-line p-4">
+              <h3 className="font-bold">Émojis du serveur</h3>
+              <p className="mt-1 text-xs text-muted">
+                PNG, JPG, WebP ou GIF animé, 1 Mo max. Tape :nom: dans un message pour envoyer l’émoji, dans les salons comme en MP.
+                Les GIF animés jouent dans le chat.
+              </p>
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  pickEmojiFile(e.dataTransfer.files?.[0] ?? null);
+                }}
+                className={`mt-3 rounded-2xl border-2 border-dashed px-4 py-5 text-center transition-colors ${
+                  dragOver ? 'border-primary bg-primary/10' : 'border-line bg-surface2/50'
+                }`}
+              >
+                <p className="text-sm font-semibold">{emojiFile ? `🖼️ ${emojiFile.name}` : 'Glisse une image ici, ou choisis un fichier'}</p>
+                <p className="mt-1 text-xs text-muted">PNG, JPG, WebP ou GIF animé — 1 Mo maximum</p>
+                <button
+                  onClick={() => emojiFileRef.current?.click()}
+                  className="mt-3 rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+                >
+                  Choisir un fichier…
+                </button>
+                <input
+                  ref={emojiFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => pickEmojiFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+              <div className="mt-3 flex gap-2">
+                <span className="flex shrink-0 items-center rounded-xl border border-line bg-surface px-3 py-2 text-sm text-muted">:</span>
+                <input
+                  value={emojiName}
+                  onChange={(e) => setEmojiName(e.target.value)}
+                  placeholder="nom_de_lemoji"
+                  maxLength={32}
+                  className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+                <span className="flex shrink-0 items-center rounded-xl border border-line bg-surface px-3 py-2 text-sm text-muted">:</span>
+                <button
+                  onClick={importEmoji}
+                  disabled={emojiBusy || !emojiFile}
+                  className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {emojiBusy ? '…' : 'Importer'}
+                </button>
+              </div>
+              {emojis.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">Aucun émoji pour le moment.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {emojis.map((e) => {
+                    const { data } = sb.storage.from('emojis').getPublicUrl(e.image_path);
+                    return (
+                      <li key={e.id} className="flex items-center gap-3 rounded-xl bg-surface2 px-3 py-2">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface">
+                          <img src={data.publicUrl} alt={e.name} className="max-h-full max-w-full object-contain" loading="lazy" />
+                        </span>
+                        {renamingEmoji === e.id ? (
+                          <span className="flex min-w-0 flex-1 gap-2">
+                            <input
+                              value={renameEmojiValue}
+                              onChange={(e2) => setRenameEmojiValue(e2.target.value)}
+                              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-sm outline-none focus:border-primary"
+                              autoFocus
+                            />
+                            <button onClick={() => renameEmoji(e)} className="text-sm font-bold text-primary">OK</button>
+                            <button onClick={() => setRenamingEmoji(null)} className="text-sm text-muted">Annuler</button>
+                          </span>
+                        ) : (
+                          <>
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                              :{e.name}:{e.animated ? ' 🎞️' : ''}
+                            </span>
+                            <button
+                              onClick={() => { setRenamingEmoji(e.id); setRenameEmojiValue(e.name); }}
+                              className="shrink-0 text-xs text-muted hover:text-ink"
+                            >
+                              Renommer
+                            </button>
+                            <button onClick={() => deleteEmoji(e)} className="shrink-0 text-xs text-muted hover:text-danger">
+                              Supprimer
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
 
           {isOwner && (
             <div className="rounded-2xl border border-danger/30 p-4">

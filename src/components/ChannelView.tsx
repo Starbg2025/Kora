@@ -197,6 +197,14 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     setDraft('');
     setHasMore(true);
     load();
+    // Lien copié vers un message précis (#msg-<id>) : y sauter directement.
+    window.setTimeout(() => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#msg-')) {
+        jumpTo(hash.slice(5));
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }, 800);
   }, [load]);
 
   // Marquer le salon comme visité (badges non-lus / mentions de la sidebar).
@@ -876,6 +884,11 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           }}
           onPickGif={(url) => sendGif(url)}
           onPickSticker={(s) => sendSticker(s)}
+          onPickCustom={(name) => {
+            insertEmoji(`:${name}:`);
+            setShowEmoji(false);
+          }}
+          currentCommunityId={communityId}
           onClose={() => setShowEmoji(false)}
         />
       )}

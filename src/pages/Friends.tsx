@@ -270,12 +270,14 @@ export default function Friends() {
     <div className="flex h-full flex-col bg-base">
       <div className="border-b border-line px-6 py-4">
         <h1 className="text-xl font-extrabold">Amis</h1>
+        <p className="mt-4 text-sm font-bold uppercase tracking-wide text-muted">Ajouter un ami</p>
+        <p className="mt-1 text-sm text-muted">Tu peux ajouter des amis avec leur nom d’utilisateur Kora.</p>
         <form onSubmit={search} className="mt-3 flex gap-2">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Ajouter un ami — nom d’utilisateur exact"
-            className="w-full min-w-0 max-w-md rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-primary"
+            className="w-full min-w-0 max-w-md rounded-2xl border-2 border-primary/60 bg-surface px-5 py-3.5 text-[15px] outline-none focus:border-primary"
             aria-label="Rechercher un utilisateur par nom exact"
           />
           <button

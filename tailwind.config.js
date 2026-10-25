@@ -17,6 +17,14 @@ export default {
         danger: '#EF4444',
         info: '#38BDF8',
       },
+      // Coins très arrondis, façon Yapper : toute l'app en profite d'un coup
+      // (modales, menus, champs, boutons, cartes utilisent xl/2xl/3xl).
+      borderRadius: {
+        lg: '0.75rem',
+        xl: '1.25rem',
+        '2xl': '1.75rem',
+        '3xl': '2.25rem',
+      },
     },
   },
   plugins: [],

@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useCustomEmojis, type CustomEmojiEntry } from '../lib/emojis';
 
 const URL_RE = /(https?:\/\/[^\s]+)/g;
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i;
@@ -78,11 +80,41 @@ function YouTubeCard({ url }: { url: string }) {
 }
 
 /**
+ * Découpe un segment de texte sur les :nom: d'émojis personnalisés.
+ * Nom connu → image (les GIF animés jouent) ; nom inconnu (émoji supprimé
+ * ou jamais existant) → texte d'origine, le message ne casse jamais.
+ */
+function renderTextWithEmojis(text: string, keyPrefix: string, map: Map<string, CustomEmojiEntry>): ReactNode[] {
+  const segs = text.split(/:([a-z0-9_-]{2,32}):/g);
+  return segs.map((seg, j) => {
+    if (j % 2 === 1) {
+      const e = map.get(seg);
+      if (e) {
+        return (
+          <img
+            key={`${keyPrefix}-${j}`}
+            src={e.url}
+            alt={`:${seg}:`}
+            title={`:${seg}:`}
+            className="mx-px inline-block h-5 w-5 align-text-bottom"
+            loading="lazy"
+          />
+        );
+      }
+      return <span key={`${keyPrefix}-${j}`}>:{seg}:</span>;
+    }
+    return <span key={`${keyPrefix}-${j}`}>{seg}</span>;
+  });
+}
+
+/**
  * Contenu d'un message : texte avec liens cliquables, aperçus YouTube (oEmbed)
  * et images distantes (ex. GIF Tenor) affichées directement.
  * Jamais de HTML brut : tout passe par React, aucun risque XSS.
  */
 export default function MessageContent({ content }: { content: string }) {
+  const { sb } = useAuth();
+  const emojiMap = useCustomEmojis(sb);
   const trimmed = content.trim();
   // Message constitué d'une seule URL d'image → afficher l'image (ex. GIF envoyé).
   if (/^https?:\/\/\S+$/.test(trimmed) && IMAGE_EXT_RE.test(trimmed) && !isYouTubeUrl(trimmed)) {
@@ -98,7 +130,7 @@ export default function MessageContent({ content }: { content: string }) {
   return (
     <span className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
       {parts.map((part, i) => {
-        if (!/^https?:\/\//.test(part)) return <span key={i}>{part}</span>;
+        if (!/^https?:\/\//.test(part)) return <span key={i}>{renderTextWithEmojis(part, `p${i}`, emojiMap)}</span>;
         const yt = isYouTubeUrl(part);
         if (yt) return <YouTubeCard key={i} url={part} />;
         return (

@@ -59,6 +59,12 @@ const ICONS = {
       <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
     </svg>
   ),
+  search: (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
   settings: (
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
@@ -136,6 +142,9 @@ export default function ServerRail() {
         </button>
         <RailButton active={onDMs && !activeCommunity} onClick={() => navigate('/app/dm')} title="Messages privés">
           {ICONS.dm}
+        </RailButton>
+        <RailButton active={false} onClick={() => window.dispatchEvent(new Event('kora:open-search'))} title="Rechercher dans tes messages (Ctrl+K)">
+          {ICONS.search}
         </RailButton>
         <div className="h-px w-8 shrink-0 bg-line" />
         {communities.map((c) => (

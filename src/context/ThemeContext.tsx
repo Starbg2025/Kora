@@ -5,7 +5,7 @@ export type ThemeChoice = 'clair' | 'sombre' | 'systeme';
 export type DensityChoice = 'confortable' | 'compacte';
 export type TextSizeChoice = 'petit' | 'normal' | 'grand';
 
-export const ACCENT_COLORS = ['#7C3AED', '#3B82F6', '#0EA5E9', '#14B8A6', '#22C55E', '#F59E0B', '#EC4899', '#EF4444'];
+export const ACCENT_COLORS = ['#7C3AED', '#3B82F6', '#0EA5E9', '#14B8A6', '#22C55E', '#FF6A00', '#EC4899', '#EF4444'];
 
 interface ThemeCtxValue {
   theme: ThemeChoice;
@@ -25,7 +25,7 @@ const ThemeCtx = createContext<ThemeCtxValue>({
   theme: 'systeme',
   resolved: 'sombre',
   density: 'confortable',
-  accentColor: '#7C3AED',
+  accentColor: '#FF6A00',
   textSize: 'normal',
   reduceMotion: false,
   setTheme: () => {},
@@ -60,7 +60,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('kora-density');
     return saved === 'compacte' ? 'compacte' : 'confortable';
   });
-  const [accentColor, setAccentColorState] = useState<string>(() => localStorage.getItem('kora-accent') || '#7C3AED');
+  const [accentColor, setAccentColorState] = useState<string>(() => localStorage.getItem('kora-accent') || '#FF6A00');
   const [textSize, setTextSizeState] = useState<TextSizeChoice>(() => {
     const saved = localStorage.getItem('kora-text-size');
     return saved === 'petit' || saved === 'grand' ? saved : 'normal';

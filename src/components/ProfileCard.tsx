@@ -29,11 +29,12 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
       <button aria-label="Fermer" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-surface shadow-2xl sm:max-w-sm sm:rounded-3xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
-        {/* Bannière décorative (couleurs Kora) + avatar */}
+        {/* Bannière décorative (image si présente, sinon couleur Kora) + avatar */}
         <div
-          className={`relative h-28 ${profile.banner_color ? '' : 'bg-gradient-to-br from-primary via-[#a855f7] to-accent'}`}
-          style={profile.banner_color ? { background: `linear-gradient(135deg, ${profile.banner_color}, ${profile.banner_color}88)` } : undefined}
+          className={`relative h-28 overflow-hidden ${profile.banner_color && !profile.banner_url ? '' : profile.banner_url ? '' : 'bg-gradient-to-br from-primary via-[#a855f7] to-accent'}`}
+          style={profile.banner_color && !profile.banner_url ? { background: `linear-gradient(135deg, ${profile.banner_color}, ${profile.banner_color}88)` } : undefined}
         >
+          {profile.banner_url && <img src={profile.banner_url} alt="" className="absolute inset-0 h-full w-full object-cover" />}
           <button
             onClick={onClose}
             className="absolute right-3 top-3 rounded-full bg-black/40 p-2 text-white hover:bg-black/60"

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { useFriends } from '../hooks/useFriends';
 import Avatar from '../components/Avatar';
-import EmptyState from '../components/EmptyState';
+import Logo from '../components/Logo';
 import VerifiedBadge from '../components/VerifiedBadge';
 import Modal from '../components/Modal';
 import ProfileCard from '../components/ProfileCard';
@@ -379,6 +379,14 @@ export default function DMs() {
             />
           </div>
           <button
+            onClick={() => window.dispatchEvent(new Event('kora:open-search'))}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-base text-muted hover:bg-line hover:text-ink"
+            title="Rechercher dans tes messages (Ctrl+K)"
+            aria-label="Rechercher dans tes messages"
+          >
+            🔍
+          </button>
+          <button
             onClick={() => navigate('/app/amis')}
             className="flex shrink-0 items-center gap-1.5 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
             title="Ajouter des amis"
@@ -630,14 +638,15 @@ export default function DMs() {
 
 export function EmptyDM() {
   return (
-    <EmptyState
-      title="Tes messages privés"
-      text="Sélectionne une conversation, ou touche ＋ pour écrire à un ami."
-      action={
-        <NavLink to="/app/dm/nouveau" className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90">
-          Nouveau message
-        </NavLink>
-      }
-    />
+    <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+      <Logo size={96} />
+      <div>
+        <p className="text-xl font-extrabold">Choisis une conversation pour commencer</p>
+        <p className="mt-1 max-w-sm text-sm text-muted">Ou commence une nouvelle depuis la liste de gauche.</p>
+      </div>
+      <NavLink to="/app/dm/nouveau" className="rounded-2xl bg-primary px-6 py-3 text-sm font-bold text-white hover:opacity-90">
+        Nouveau message
+      </NavLink>
+    </div>
   );
 }

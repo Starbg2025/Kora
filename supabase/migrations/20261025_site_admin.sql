@@ -37,12 +37,22 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 3. Trigger : seuls les administrateurs du site peuvent changer les drapeaux
+-- EXCEPTION D'AMORÇAGE : dans l'éditeur SQL, il n'y a pas de JWT, donc
+-- auth.uid() est NULL et is_site_admin() vaut faux — sans cette exception,
+-- le trigger bloquerait l'UPDATE d'initialisation ci-dessous (section 4) et
+-- tout le script serait annulé (cas rencontré le 2026-10-24). C'est sans
+-- danger : les clients de l'app ont toujours un JWT ; sans JWT, les règles
+-- RLS bloquent déjà toute écriture depuis un client. Seul l'éditeur SQL et
+-- le backend (rôle postgres / service_role) passent par ce chemin.
 -- ---------------------------------------------------------------------------
 create or replace function public.protect_admin_flags()
 returns trigger
 language plpgsql
 as $$
 begin
+  if auth.uid() is null then
+    return new;
+  end if;
   if (new.is_verified is distinct from old.is_verified
       or new.is_site_admin is distinct from old.is_site_admin
       or new.is_creator is distinct from old.is_creator)

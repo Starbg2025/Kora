@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { loadCustomEmojis, type CustomEmojiEntry } from '../lib/emojis';
 import type { CustomSticker } from '../lib/types';
 
 interface EmojiEntry {
@@ -217,6 +218,11 @@ interface Props {
   onPickGif?: (url: string) => void;
   /** Envoi d'un autocollant de serveur : l'appelant le copie en pièce jointe. */
   onPickSticker?: (sticker: CustomSticker) => void;
+  /** Insertion d'un émoji personnalisé (:nom:) : l'appelant l'insère dans le brouillon.
+   * Absent pour les réactions (les réactions restent des émojis standards). */
+  onPickCustom?: (name: string) => void;
+  /** Communauté courante : ses émojis s'affichent en premier dans CUSTOM. */
+  currentCommunityId?: string | null;
 }
 
 const TENOR_KEY = (import.meta.env.VITE_TENOR_API_KEY as string | undefined) ?? '';
@@ -261,7 +267,7 @@ async function fetchTenor(path: string, params: Record<string, string>): Promise
 }
 
 /** Sélecteur d'émojis façon Discord : onglets, recherche, fréquemment utilisés. */
-export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker }: Props) {
+export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker, onPickCustom, currentCommunityId }: Props) {
   const { sb } = useAuth();
   const [tab, setTab] = useState<'emoji' | 'gif' | 'stickers'>('emoji');
   const [q, setQ] = useState('');
@@ -319,6 +325,48 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker 
     })();
   }, [tab, stickersLoaded, sb]);
 
+  // Émojis personnalisés (onglet Émoji, section CUSTOM) : seulement quand
+  // l'appelant sait insérer un :nom: (compositeur, pas les réactions).
+  const [customEmojis, setCustomEmojis] = useState<CustomEmojiEntry[]>([]);
+  const [customLoaded, setCustomLoaded] = useState(false);
+  useEffect(() => {
+    if (tab !== 'emoji' || !onPickCustom || customLoaded) return;
+    loadCustomEmojis(sb).then((list) => {
+      setCustomEmojis(list);
+      setCustomLoaded(true);
+    });
+  }, [tab, onPickCustom, customLoaded, sb]);
+
+  // Groupes CUSTOM : communauté courante d'abord, puis les autres.
+  const customGroups = useMemo(() => {
+    const byCommunity = new Map<string, { name: string; items: CustomEmojiEntry[] }>();
+    for (const e of customEmojis) {
+      const g = byCommunity.get(e.community_id) ?? { name: e.community_name, items: [] };
+      g.items.push(e);
+      byCommunity.set(e.community_id, g);
+    }
+    const groups = [...byCommunity.entries()];
+    if (currentCommunityId) {
+      groups.sort(([a], [b]) => (a === currentCommunityId ? -1 : b === currentCommunityId ? 1 : 0));
+    }
+    return groups;
+  }, [customEmojis, currentCommunityId]);
+
+  const customGrid = (items: CustomEmojiEntry[]) => (
+    <div className="grid grid-cols-8 gap-1">
+      {items.map((e) => (
+        <button
+          key={e.id}
+          onClick={() => onPickCustom?.(e.name)}
+          className="flex h-10 items-center justify-center rounded-lg hover:bg-surface2"
+          title={`:${e.name}:`}
+        >
+          <img src={e.url} alt={`:${e.name}:`} className="max-h-8 max-w-8 object-contain" loading="lazy" />
+        </button>
+      ))}
+    </div>
+  );
+
   const runGifSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const needle = gifQuery.trim();
@@ -352,6 +400,12 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker 
     }
     return out;
   }, [q]);
+
+  const customMatches = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return [];
+    return customEmojis.filter((e) => e.name.includes(needle));
+  }, [q, customEmojis]);
 
   const pick = (emoji: string) => {
     recordEmojiUse(emoji);
@@ -515,18 +569,43 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker 
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {filtered ? (
-                filtered.length === 0 ? (
+                filtered.length === 0 && customMatches.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted">Aucun émoji trouvé pour « {q} ».</p>
                 ) : (
-                  filtered.map((c) => (
-                    <div key={c.name} className="mb-4">
-                      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">{c.name}</p>
-                      {grid(c.items)}
-                    </div>
-                  ))
+                  <>
+                    {onPickCustom && customMatches.length > 0 && (
+                      <div className="mb-4">
+                        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Émojis personnalisés</p>
+                        {customGrid(customMatches)}
+                      </div>
+                    )}
+                    {filtered.map((c) => (
+                      <div key={c.name} className="mb-4">
+                        <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">{c.name}</p>
+                        {grid(c.items)}
+                      </div>
+                    ))}
+                  </>
                 )
               ) : (
                 <>
+                  {onPickCustom && customLoaded && customGroups.length > 0 && (
+                    <div className="mb-4">
+                      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Custom</p>
+                      {customGroups.map(([cid, g]) => (
+                        <div key={cid} className="mb-3">
+                          <p className="mb-1 text-xs font-semibold text-muted">{g.name}</p>
+                          {customGrid(g.items)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {onPickCustom && customLoaded && customGroups.length === 0 && (
+                    <p className="mb-4 text-xs text-muted">
+                      Aucun émoji personnalisé : les administrateurs de tes communautés peuvent en importer depuis les paramètres du serveur
+                      (section Émojis).
+                    </p>
+                  )}
                   {freq.length > 0 && (
                     <div className="mb-4">
                       <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Fréquemment utilisés</p>

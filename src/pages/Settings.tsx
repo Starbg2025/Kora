@@ -236,6 +236,8 @@ function ProfileTab() {
   const [customStatus, setCustomStatus] = useState(profile?.custom_status ?? '');
   const [duration, setDuration] = useState('jamais');
   const [bannerColor, setBannerColor] = useState(profile?.banner_color ?? '');
+  const [bannerUrl, setBannerUrl] = useState<string | null>(profile?.banner_url ?? null);
+  const [bannerUploading, setBannerUploading] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -247,6 +249,7 @@ function ProfileTab() {
     setStatus(profile?.status ?? 'en_ligne');
     setCustomStatus(profile?.custom_status ?? '');
     setBannerColor(profile?.banner_color ?? '');
+    setBannerUrl(profile?.banner_url ?? null);
   }, [profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uploadAvatar = async (f: File) => {
@@ -286,6 +289,38 @@ function ProfileTab() {
     setNotice('Avatar supprimé.');
   };
 
+  // Bannière image (GIF animé accepté) : envoyée tout de suite, appliquée à l'enregistrement.
+  const uploadBanner = async (f: File) => {
+    if (!user) return;
+    if (!f.type.startsWith('image/')) {
+      setNotice('Choisis un fichier image.');
+      return;
+    }
+    if (f.size > 5 * 1024 * 1024) {
+      setNotice('L’image dépasse 5 Mo.');
+      return;
+    }
+    setBannerUploading(true);
+    setNotice('');
+    try {
+      const ext = f.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${user.id}/banner-${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('avatars').upload(path, f, { upsert: true });
+      if (upErr) throw upErr;
+      const { data } = sb.storage.from('avatars').getPublicUrl(path);
+      if (profile?.banner_url) {
+        const oldPath = profile.banner_url.split('/avatars/')[1];
+        if (oldPath) await sb.storage.from('avatars').remove([oldPath]).catch(() => {});
+      }
+      setBannerUrl(data.publicUrl);
+      setNotice('Bannière envoyée — enregistre le profil pour l’appliquer.');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Envoi impossible.');
+    } finally {
+      setBannerUploading(false);
+    }
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -306,6 +341,7 @@ function ProfileTab() {
         custom_status: customStatus.trim().slice(0, 100),
         custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
         banner_color: bannerColor || null,
+        banner_url: bannerUrl,
       });
       setNotice('Profil enregistré.');
     } catch (err) {
@@ -331,6 +367,7 @@ function ProfileTab() {
           )}
         </div>
       </div>
+      <p className="-mt-2 text-xs text-muted">PNG, JPG, WebP ou GIF animé (5 Mo max) — les GIF jouent en animé dans le chat, les listes et les profils.</p>
       <div>
         <label htmlFor="p-username" className="mb-1 block text-sm font-medium">Nom d’utilisateur (unique)</label>
         <input id="p-username" value={username} onChange={(e) => setUsername(e.target.value)} className={inputCls} />
@@ -387,6 +424,28 @@ function ProfileTab() {
           ))}
         </div>
         <p className="mt-1 text-xs text-muted">Gratuit, comme tout sur Kora.</p>
+      </div>
+      <div>
+        <span className="mb-1 block text-sm font-medium">Image de bannière</span>
+        {bannerUrl ? (
+          <div className="overflow-hidden rounded-2xl border border-line">
+            <img src={bannerUrl} alt="Bannière" className="h-28 w-full object-cover" />
+          </div>
+        ) : (
+          <p className="text-xs text-muted">Aucune image : la couleur ci-dessus s’applique.</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="cursor-pointer rounded-xl bg-surface2 px-4 py-2 text-sm font-medium hover:bg-line">
+            {bannerUploading ? 'Envoi…' : 'Choisir une image…'}
+            <input type="file" accept="image/*" className="hidden" disabled={bannerUploading} onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])} />
+          </label>
+          {bannerUrl && (
+            <button type="button" onClick={() => setBannerUrl(null)} className="text-xs text-muted hover:text-danger">
+              Supprimer l’image (la couleur s’appliquera)
+            </button>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-muted">PNG, JPG, WebP ou GIF animé, 5 Mo max. L’image remplace la couleur ; la couleur reste le repli.</p>
       </div>
       {notice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm">{notice}</p>}
       <button disabled={busy} className="rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50">

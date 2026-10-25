@@ -11,6 +11,7 @@ export interface Profile {
   custom_status_expires_at: string | null;
   created_at: string;
   banner_color: string | null;
+  banner_url: string | null;
   is_disabled: boolean;
   is_verified: boolean;
   is_site_admin: boolean;
@@ -333,6 +334,17 @@ export interface CustomSticker {
   community_id: string;
   name: string;
   image_path: string;
+  created_by: string;
+  created_at: string;
+}
+
+/** Émoji personnalisé de serveur (upload PNG/JPG/WebP/GIF, utilisable via :nom:). */
+export interface CustomEmoji {
+  id: string;
+  community_id: string;
+  name: string;
+  image_path: string;
+  animated: boolean;
   created_by: string;
   created_at: string;
 }

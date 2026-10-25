@@ -1232,6 +1232,7 @@ export default function Conversation() {
                     </div>
                   )}
                   <div
+                    id={`msg-${m.id}`}
                     ref={(el) => {
                       msgRefs.current[m.id] = el;
                     }}
@@ -1652,6 +1653,10 @@ export default function Conversation() {
           onPick={(e) => insertEmoji(e)}
           onPickGif={(url) => sendGif(url)}
           onPickSticker={(s) => sendSticker(s)}
+          onPickCustom={(name) => {
+            insertEmoji(`:${name}:`);
+            setShowEmoji(false);
+          }}
           onClose={() => setShowEmoji(false)}
         />
       )}

@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import BottomNav from './BottomNav';
 import ServerRail from './ServerRail';
+import GlobalSearch from './GlobalSearch';
 
 /** Coquille de l'application : rail des serveurs (bureau) + contenu. */
 export default function AppShell() {
@@ -44,6 +45,7 @@ export default function AppShell() {
         </main>
       </div>
       {!hideBottomNav && <BottomNav />}
+      <GlobalSearch />
     </div>
   );
 }
