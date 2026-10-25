@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../context/AuthContext';
-import type { Community, CommunityMember, CommunityRole } from '../lib/types';
+import type { Community, CommunityMember, CommunityRole, CustomSticker } from '../lib/types';
 
 interface Props {
   community: Community;
@@ -26,6 +26,99 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
   const [transferTo, setTransferTo] = useState('');
   const [confirmTransfer, setConfirmTransfer] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Autocollants du serveur (import par les admins ; suppression sans casse :
+  // l'envoi copie le fichier en pièce jointe, les anciens messages survivent).
+  const [stickers, setStickers] = useState<CustomSticker[]>([]);
+  const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
+  const [stickerName, setStickerName] = useState('');
+  const [stickerFile, setStickerFile] = useState<File | null>(null);
+  const [stickerBusy, setStickerBusy] = useState(false);
+  const [renamingSticker, setRenamingSticker] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const stickerFileRef = useRef<HTMLInputElement>(null);
+
+  const loadStickers = async () => {
+    const { data, error } = await sb.from('custom_stickers').select('*').eq('community_id', community.id).order('created_at', { ascending: false });
+    if (error) return;
+    const list = (data ?? []) as CustomSticker[];
+    setStickers(list);
+    const urls: Record<string, string> = {};
+    await Promise.all(
+      list.map(async (s) => {
+        const { data: signed } = await sb.storage.from('stickers').createSignedUrl(s.image_path, 3600);
+        if (signed) urls[s.id] = signed.signedUrl;
+      }),
+    );
+    setStickerUrls(urls);
+  };
+
+  useEffect(() => {
+    loadStickers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [community.id]);
+
+  const importSticker = async () => {
+    const name = stickerName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!stickerFile || name.length < 2) {
+      flash('Choisis un fichier et un nom (2 caractères minimum).');
+      return;
+    }
+    if (!['image/png', 'image/webp'].includes(stickerFile.type)) {
+      flash('Format invalide : PNG ou WebP uniquement.');
+      return;
+    }
+    if (stickerFile.size > 512 * 1024) {
+      flash('Fichier trop lourd : 512 Ko maximum.');
+      return;
+    }
+    setStickerBusy(true);
+    try {
+      const ext = stickerFile.type === 'image/webp' ? 'webp' : 'png';
+      const path = `${community.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('stickers').upload(path, stickerFile);
+      if (upErr) throw upErr;
+      const { error } = await sb.from('custom_stickers').insert({
+        community_id: community.id,
+        name,
+        image_path: path,
+        created_by: me,
+      });
+      if (error) throw error;
+      setStickerName('');
+      setStickerFile(null);
+      flash('Autocollant importé.');
+      await loadStickers();
+      onChanged();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'Import impossible.');
+    } finally {
+      setStickerBusy(false);
+    }
+  };
+
+  const renameSticker = async (s: CustomSticker) => {
+    const name = renameValue.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (name.length < 2) {
+      flash('Nom invalide (2 caractères minimum).');
+      return;
+    }
+    const { error } = await sb.from('custom_stickers').update({ name }).eq('id', s.id);
+    if (error) {
+      flash('Renommage impossible (nom déjà utilisé ?).');
+      return;
+    }
+    setRenamingSticker(null);
+    await loadStickers();
+  };
+
+  const deleteSticker = async (s: CustomSticker) => {
+    if (!window.confirm(`Supprimer l’autocollant « ${s.name} » ? Les messages déjà envoyés ne seront pas affectés.`)) return;
+    await sb.from('custom_stickers').delete().eq('id', s.id);
+    await sb.storage.from('stickers').remove([s.image_path]).catch(() => {});
+    flash('Autocollant supprimé.');
+    await loadStickers();
+  };
 
   const isOwner = myRole === 'proprietaire';
 
@@ -178,6 +271,85 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
               🛡️ Ouvrir la modération (signalements, bannis, journal)
             </button>
           )}
+
+          <div className="rounded-2xl border border-line p-4">
+            <h3 className="font-bold">Autocollants du serveur</h3>
+            <p className="mt-1 text-xs text-muted">
+              PNG ou WebP, 512 Ko max. Les membres de la communauté peuvent les envoyer depuis le sélecteur (onglet Autocollants).
+            </p>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={stickerName}
+                onChange={(e) => setStickerName(e.target.value)}
+                placeholder="Nom de l’autocollant"
+                maxLength={32}
+                className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <button
+                onClick={() => stickerFileRef.current?.click()}
+                className="shrink-0 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
+              >
+                {stickerFile ? '🖼️ Choisie' : 'Choisir…'}
+              </button>
+              <input
+                ref={stickerFileRef}
+                type="file"
+                accept="image/png,image/webp"
+                className="hidden"
+                onChange={(e) => setStickerFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                onClick={importSticker}
+                disabled={stickerBusy || !stickerFile}
+                className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {stickerBusy ? '…' : 'Importer'}
+              </button>
+            </div>
+            {stickerFile && <p className="mt-1 truncate text-xs text-muted">{stickerFile.name} ({(stickerFile.size / 1024).toFixed(0)} Ko)</p>}
+            {stickers.length === 0 ? (
+              <p className="mt-3 text-sm text-muted">Aucun autocollant pour le moment.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {stickers.map((s) => (
+                  <li key={s.id} className="flex items-center gap-3 rounded-xl bg-surface2 px-3 py-2">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface">
+                      {stickerUrls[s.id] ? (
+                        <img src={stickerUrls[s.id]} alt={s.name} className="max-h-full max-w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-muted">{s.name}</span>
+                      )}
+                    </span>
+                    {renamingSticker === s.id ? (
+                      <span className="flex min-w-0 flex-1 gap-2">
+                        <input
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-sm outline-none focus:border-primary"
+                          autoFocus
+                        />
+                        <button onClick={() => renameSticker(s)} className="text-sm font-bold text-primary">OK</button>
+                        <button onClick={() => setRenamingSticker(null)} className="text-sm text-muted">Annuler</button>
+                      </span>
+                    ) : (
+                      <>
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold">:{s.name}:</span>
+                        <button
+                          onClick={() => { setRenamingSticker(s.id); setRenameValue(s.name); }}
+                          className="shrink-0 text-xs text-muted hover:text-ink"
+                        >
+                          Renommer
+                        </button>
+                        <button onClick={() => deleteSticker(s)} className="shrink-0 text-xs text-muted hover:text-danger">
+                          Supprimer
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           {isOwner && (
             <div className="rounded-2xl border border-danger/30 p-4">

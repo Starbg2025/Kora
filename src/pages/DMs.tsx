@@ -56,7 +56,7 @@ export default function DMs() {
   const { sb, user, profile, settings, saveSettings } = useAuth();
   const { online } = usePresence();
   const { entries } = useFriends();
-  const { notify } = useNotifications();
+  const { notify, unreadCount } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const match = useMatch('/app/dm/:dmId');
@@ -353,23 +353,19 @@ export default function DMs() {
 
   const friends = entries.filter((e) => e.friendship.status === 'accepted');
   const sheetFriend = sheetDM && !sheetDM.dm.is_group ? sheetDM.others[0] ?? null : null;
+  // Utilisateurs bloqués (dans un sens ou l'autre) : leur contenu ne s'affiche pas.
+  const blockedIds = new Set(
+    entries.filter((e) => e.friendship.status === 'blocked').map((e) => e.profile.id),
+  );
 
   return (
     <div className="flex h-full">
       <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-60 md:shrink-0`}>
         <div className="flex items-center gap-2 px-4 pb-2 pt-4">
           <h1 className="flex-1 text-lg font-extrabold">Messages privés</h1>
-          <button
-            onClick={() => navigate('/app/dm/nouveau')}
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white hover:opacity-90"
-            title="Nouveau message"
-            aria-label="Nouveau message"
-          >
-            ＋
-          </button>
         </div>
-        <div className="px-4 pb-2">
-          <div className="flex items-center gap-2 rounded-xl bg-base px-3 py-2">
+        <div className="flex items-center gap-2 px-4 pb-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-base px-3 py-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-muted">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
             </svg>
@@ -381,6 +377,22 @@ export default function DMs() {
               aria-label="Rechercher une conversation"
             />
           </div>
+          <button
+            onClick={() => navigate('/app/amis')}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
+            title="Ajouter des amis"
+            aria-label="Ajouter des amis"
+          >
+            <span>👥</span> <span className="hidden sm:inline">Ajouter des amis</span>
+          </button>
+          <button
+            onClick={() => navigate('/app/dm/nouveau')}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white hover:opacity-90"
+            title="Nouveau message"
+            aria-label="Nouveau message"
+          >
+            ＋
+          </button>
         </div>
         <div className="space-y-0.5 px-2 pb-1">
           <button
@@ -417,6 +429,8 @@ export default function DMs() {
               const isPinned = pinned.includes(v.dm.id);
               const isMuted = mutedIds.has(v.dm.id);
               const st = !v.dm.is_group && v.others[0] ? online[v.others[0].id]?.status ?? 'hors_ligne' : null;
+              // Conversation avec un utilisateur bloqué : grisée, contenu masqué.
+              const isBlocked = !v.dm.is_group && v.others[0] ? blockedIds.has(v.others[0].id) : false;
               return (
                 <div
                   key={v.dm.id}
@@ -430,7 +444,7 @@ export default function DMs() {
                     to={`/app/dm/${v.dm.id}`}
                     className={`dm-item mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 ${
                       isOpen ? 'bg-surface2' : 'hover:bg-surface2/60'
-                    }`}
+                    } ${isBlocked ? 'opacity-50' : ''}`}
                   >
                     {v.dm.is_group ? (
                       <GroupAvatar profiles={v.others} />
@@ -443,16 +457,16 @@ export default function DMs() {
                           {isPinned && <span title="Épinglée">📌</span>}
                           <span className="truncate">{dmTitle(v)}</span>
                         </p>
-                        {v.lastMessage && (
+                        {v.lastMessage && !isBlocked && (
                           <span className="shrink-0 text-[11px] text-muted">{formatShort(v.lastMessage.created_at)}</span>
                         )}
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-xs text-muted">{preview(v)}</p>
+                        <p className="truncate text-xs text-muted">{isBlocked ? '🚫 Message bloqué' : preview(v)}</p>
                         <span className="flex shrink-0 items-center gap-1.5">
                           {isMuted && <span title="Sourdine">{muteIcon}</span>}
-                          {v.unread > 0 && (
-                            <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-white">
+                          {v.unread > 0 && !isBlocked && (
+                            <span className="rounded-full bg-danger px-2 py-0.5 text-[11px] font-bold text-white">
                               {v.unread > 99 ? '99+' : v.unread}
                             </span>
                           )}
@@ -474,6 +488,19 @@ export default function DMs() {
               {STATUS_LABELS[myPresence as keyof typeof STATUS_LABELS] ?? 'Hors ligne'}
             </p>
           </div>
+          <button
+            onClick={() => navigate('/app/notifications')}
+            className="relative rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            title="Notifications"
+            aria-label="Notifications"
+          >
+            🔔
+            {unreadCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
             className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"

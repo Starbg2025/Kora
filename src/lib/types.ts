@@ -305,3 +305,31 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   category_deleted: 'Catégorie supprimée',
   transfer_ownership: 'Transfert de propriété',
 };
+
+// ---------------------------------------------------------------------------
+// Appels 1:1 + Autocollants de serveur
+// ---------------------------------------------------------------------------
+
+export type CallKind = 'audio' | 'video';
+export type CallStatus = 'termine' | 'manque' | 'refuse';
+
+export interface CallLog {
+  id: string;
+  dm_id: string;
+  caller_id: string;
+  callee_id: string;
+  kind: CallKind;
+  started_at: string;
+  ended_at: string | null;
+  status: CallStatus;
+  created_at: string;
+}
+
+export interface CustomSticker {
+  id: string;
+  community_id: string;
+  name: string;
+  image_path: string;
+  created_by: string;
+  created_at: string;
+}

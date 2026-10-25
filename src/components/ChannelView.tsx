@@ -4,6 +4,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { containsMention, snippet } from '../lib/mentions';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
+import MessageContent from './MessageContent';
 import MessageToolbar from './MessageToolbar';
 import Modal from './Modal';
 import ReportModal from './ReportModal';
@@ -95,6 +96,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [replyTo, setReplyTo] = useState<CommunityMessage | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -108,6 +110,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const pressTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -191,6 +194,18 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     setHasMore(true);
     load();
   }, [load]);
+
+  // Marquer le salon comme visité (badges non-lus / mentions de la sidebar).
+  useEffect(() => {
+    if (!channel.id) return;
+    try {
+      const visits = JSON.parse(localStorage.getItem('kora:channel-visits') ?? '{}') as Record<string, string>;
+      visits[channel.id] = new Date().toISOString();
+      localStorage.setItem('kora:channel-visits', JSON.stringify(visits));
+    } catch {
+      /* stockage indisponible */
+    }
+  }, [channel.id]);
 
   // Timeout actif pour moi dans cette communauté (bandeau au-dessus du compositeur)
   useEffect(() => {
@@ -352,6 +367,61 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       ta.focus();
       ta.selectionStart = ta.selectionEnd = start + emoji.length;
     });
+  };
+
+  /** GIF Tenor : URL distante envoyée comme contenu (rendue comme image). */
+  const sendGif = async (url: string) => {
+    if (sending) return;
+    setShowEmoji(false);
+    setSending(true);
+    try {
+      const { error } = await sb.from('community_messages').insert({
+        channel_id: channel.id,
+        author_id: me,
+        content: url,
+        attachment_path: null,
+        attachment_name: null,
+        reply_to: null,
+      });
+      if (error) throw error;
+      requestAnimationFrame(() => scrollToBottom());
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Envoi du GIF impossible.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /** Autocollant : copié dans « pieces-jointes » (les anciens messages survivent à sa suppression). */
+  const sendSticker = async (sticker: { image_path: string; name: string }) => {
+    if (sending) return;
+    setShowEmoji(false);
+    setSending(true);
+    try {
+      const { data: signed } = await sb.storage.from('stickers').createSignedUrl(sticker.image_path, 300);
+      if (!signed) throw new Error('Autocollant indisponible.');
+      const res = await fetch(signed.signedUrl);
+      if (!res.ok) throw new Error('Téléchargement impossible.');
+      const blob = await res.blob();
+      const ext = sticker.image_path.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${channel.id}/${crypto.randomUUID()}_sticker.${ext}`;
+      const { error: upErr } = await sb.storage.from('pieces-jointes').upload(path, blob);
+      if (upErr) throw upErr;
+      const { error } = await sb.from('community_messages').insert({
+        channel_id: channel.id,
+        author_id: me,
+        content: '',
+        attachment_path: path,
+        attachment_name: `autocollant-${sticker.name}.${ext}`,
+        reply_to: null,
+      });
+      if (error) throw error;
+      requestAnimationFrame(() => scrollToBottom());
+    } catch {
+      setSendError('Envoi de l’autocollant impossible.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const saveEdit = async (m: CommunityMessage) => {
@@ -558,8 +628,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                         </p>
                       )}
                       {replied && (
-                        <p className="mb-1 truncate border-l-2 border-line pl-2 text-xs italic text-muted">
-                          Réponse à <strong className="text-ink">{profilesById.get(replied.author_id)?.display_name || 'Inconnu'}</strong> :{' '}
+                        <p className="mb-1 truncate border-l-2 border-primary/50 pl-2 text-xs text-muted">
+                          ↩ Réponse à <strong className="text-ink">{profilesById.get(replied.author_id)?.display_name || 'Inconnu'}</strong> :{' '}
                           {replied.content.slice(0, 80) || (replied.attachment_name ?? '')}
                         </p>
                       )}
@@ -585,7 +655,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                         </div>
                       ) : (
                         <>
-                          {m.content && <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.content}</p>}
+                          {m.content && <MessageContent content={m.content} />}
                           {m.attachment_path && <AttachmentView path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
                           {m.edited_at && <span className="ml-2 text-[11px] text-muted">(modifié)</span>}
                         </>
@@ -652,18 +722,42 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             de cette communauté pour le moment.
           </p>
         )}
-        <div className="flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
+        <div className="relative flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
+          {showAttachMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
+              <div className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
+                <button
+                  onClick={() => { setShowAttachMenu(false); photoInput.current?.click(); }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                >
+                  <span className="text-lg">🖼️</span> Photos
+                </button>
+                <button
+                  onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                >
+                  <span className="text-lg">📎</span> Fichiers
+                </button>
+              </div>
+            </>
+          )}
           <button
-            onClick={() => fileInput.current?.click()}
+            onClick={() => setShowAttachMenu((v) => !v)}
             className="shrink-0 rounded-full bg-surface p-2 text-muted hover:text-ink"
-            title="Joindre un fichier (max 25 Mo)"
-            aria-label="Joindre un fichier"
+            title={showAttachMenu ? 'Fermer le menu' : 'Joindre un fichier (max 25 Mo)'}
+            aria-label={showAttachMenu ? 'Fermer le menu' : 'Joindre un fichier'}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M12 5v14 M5 12h14" />
-            </svg>
+            {showAttachMenu ? (
+              <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none">✕</span>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M12 5v14 M5 12h14" />
+              </svg>
+            )}
           </button>
           <input ref={fileInput} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input ref={photoInput} type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <textarea
             ref={composerRef}
             value={draft}
@@ -717,6 +811,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             insertEmoji(e);
             setShowEmoji(false);
           }}
+          onPickGif={(url) => sendGif(url)}
+          onPickSticker={(s) => sendSticker(s)}
           onClose={() => setShowEmoji(false)}
         />
       )}

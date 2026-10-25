@@ -23,7 +23,7 @@ export default function Community() {
   const { communityId } = useParams<{ communityId: string }>();
   const match = useMatch('/app/c/:communityId/:channelId');
   const channelId = match?.params.channelId ?? null;
-  const { sb, user } = useAuth();
+  const { sb, user, profile } = useAuth();
   const { online } = usePresence();
   const navigate = useNavigate();
   const location = useLocation();
@@ -157,6 +157,51 @@ export default function Community() {
   }, [channels]);
 
   const uncategorized = channelsByCategory.get(null) ?? [];
+
+  // Recherche de salons + badges non-lus / mentions (basés sur la dernière
+  // visite locale de chaque salon et le dernier message réel du salon).
+  const [channelSearch, setChannelSearch] = useState('');
+  const [channelVisits, setChannelVisits] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('kora:channel-visits') ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const [latestByChannel, setLatestByChannel] = useState<
+    Record<string, { created_at: string; author_id: string; content: string }>
+  >({});
+
+  const markChannelVisited = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    setChannelVisits((prev) => {
+      const next = { ...prev, [id]: now };
+      try {
+        localStorage.setItem('kora:channel-visits', JSON.stringify(next));
+      } catch {
+        /* stockage indisponible */
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (channels.length === 0) return;
+    const ids = channels.map((c) => c.id);
+    sb.from('community_messages')
+      .select('channel_id, author_id, content, created_at')
+      .in('channel_id', ids)
+      .order('created_at', { ascending: false })
+      .limit(300)
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const map: Record<string, { created_at: string; author_id: string; content: string }> = {};
+        for (const row of data as { channel_id: string; author_id: string; content: string; created_at: string }[]) {
+          if (!map[row.channel_id]) map[row.channel_id] = row;
+        }
+        setLatestByChannel(map);
+      });
+  }, [sb, channels]);
 
   const outletContext: ChannelOutletContext = {
     communityId: communityId ?? '',
@@ -403,6 +448,14 @@ export default function Community() {
   const renderChannelRow = (ch: Channel) => {
     const active = channelId === ch.id;
     const isVoice = ch.type === 'voice';
+    // Non-lus / mentions depuis la dernière visite locale du salon.
+    const latest = latestByChannel[ch.id];
+    const visitedAt = channelVisits[ch.id] ?? new Date(0).toISOString();
+    const hasUnread = !isVoice && !!latest && latest.author_id !== me && latest.created_at > visitedAt;
+    const myName = (profile?.username ?? '').toLowerCase();
+    const hasMention =
+      hasUnread &&
+      (latest.content.toLowerCase().includes(`@${myName}`) || latest.content.includes('@everyone'));
     return (
       <div key={ch.id} className="group flex items-center gap-1 px-2">
         <button
@@ -411,6 +464,7 @@ export default function Community() {
               flash('Les salons vocaux arrivent avec la prochaine mise à jour de Kora.');
               return;
             }
+            markChannelVisited(ch.id);
             navigate(`/app/c/${communityId}/${ch.id}`);
           }}
           className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-[15px] ${
@@ -418,7 +472,12 @@ export default function Community() {
           }`}
         >
           <span className="shrink-0 text-base text-muted">{isVoice ? '🔊' : '#'}</span>
-          <span className="truncate">{ch.name}</span>
+          <span className="min-w-0 flex-1 truncate">{ch.name}</span>
+          {hasMention ? (
+            <span className="shrink-0 rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">@NOUVEAU</span>
+          ) : hasUnread ? (
+            <span className="mr-1 h-2 w-2 shrink-0 rounded-full bg-danger" title="Messages non lus" />
+          ) : null}
         </button>
         {isAdmin && (
           <div className="hidden shrink-0 items-center group-hover:flex">
@@ -491,7 +550,7 @@ export default function Community() {
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px] font-extrabold">{community.name}</span>
-              <span className="block truncate text-[11px] text-muted">{members.length} membre{members.length > 1 ? 's' : ''}</span>
+              <span className="block truncate text-[11px] text-muted">{members.length} membre{members.length > 1 ? 's' : ''} • Communauté</span>
             </span>
             <span className="shrink-0 text-muted">{showMenu ? '▴' : '▾'}</span>
           </button>
@@ -560,10 +619,32 @@ export default function Community() {
           )}
         </div>
 
+        <div className="shrink-0 px-3 pb-1 pt-2">
+          <div className="flex items-center gap-2 rounded-xl bg-base px-3 py-2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-muted">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              value={channelSearch}
+              onChange={(e) => setChannelSearch(e.target.value)}
+              placeholder="Rechercher un salon"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+              aria-label="Rechercher un salon"
+            />
+            {channelSearch && (
+              <button onClick={() => setChannelSearch('')} className="text-muted hover:text-ink" aria-label="Effacer">✕</button>
+            )}
+          </div>
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto py-2">
           {categories.map((cat) => {
             const collapsed = collapsedCats.includes(cat.id);
-            const catChannels = (channelsByCategory.get(cat.id) ?? []).slice().sort((a, b) => a.position - b.position);
+            const needle = channelSearch.trim().toLowerCase();
+            const catChannels = (channelsByCategory.get(cat.id) ?? [])
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .filter((c) => !needle || c.name.toLowerCase().includes(needle));
+            if (needle && catChannels.length === 0) return null;
             return (
               <div key={cat.id} className="mb-1">
                 <div className="group flex items-center px-3 py-1">
@@ -632,15 +713,20 @@ export default function Community() {
               </div>
             );
           })}
-          {uncategorized.length > 0 && (
-            <div className="mb-1">
-              <div className="px-3 py-1">
-                <span className="text-xs font-bold uppercase tracking-wide text-muted">Sans catégorie</span>
+          {(() => {
+            const needle = channelSearch.trim().toLowerCase();
+            const shown = uncategorized.filter((c) => !needle || c.name.toLowerCase().includes(needle));
+            if (shown.length === 0) return null;
+            return (
+              <div className="mb-1">
+                <div className="px-3 py-1">
+                  <span className="text-xs font-bold uppercase tracking-wide text-muted">Sans catégorie</span>
+                </div>
+                {shown.filter((c) => c.type !== 'voice').map(renderChannelRow)}
+                {shown.filter((c) => c.type === 'voice').map(renderChannelRow)}
               </div>
-              {uncategorized.filter((c) => c.type !== 'voice').map(renderChannelRow)}
-              {uncategorized.filter((c) => c.type === 'voice').map(renderChannelRow)}
-            </div>
-          )}
+            );
+          })()}
           {channels.length === 0 && (
             <p className="px-4 py-6 text-center text-sm text-muted">Aucun salon pour le moment.</p>
           )}

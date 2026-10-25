@@ -44,6 +44,21 @@ npm install
    - `VITE_SUPABASE_URL` : *Project Settings* → *Data API* → *Project URL*
    - `VITE_SUPABASE_ANON_KEY` : *Project Settings* → *Data API* → *anon public key*
    - (optionnel) `VITE_CONTACT_EMAIL` : adresse affichée sur la page `/contact`
+   - (optionnel) `VITE_TENOR_API_KEY` : clé gratuite Tenor pour l'onglet GIF
+     (console Google Cloud → activer l'API Tenor → créer une clé API, puis
+     l'ajouter dans `.env` et dans les variables Vercel). Sans elle, l'onglet
+     GIF affiche un message honnête au lieu de GIFs simulés.
+
+## Appels 1:1 (WebRTC)
+
+Les appels vocaux et vidéo 1:1 fonctionnent en pair-à-pair direct, avec
+signalisation via Supabase Realtime Broadcast (canal `call:<dmId>`) et un
+STUN public Google — aucune clé externe requise. Limites connues :
+- le destinataire ne voit l'appel entrant que s'il a la conversation ouverte ;
+- sur des réseaux très restrictifs (NAT symétrique), l'établissement peut
+  échouer faute de serveur TURN (aucun TURN gratuit fiable n'est intégré) ;
+- les appels de groupe et les salons vocaux nécessitent un SFU (type
+  LiveKit) et restent « bientôt disponibles » — aucun faux appel n'est affiché.
 
 ## Lancement
 

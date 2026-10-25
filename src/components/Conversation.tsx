@@ -15,6 +15,9 @@ import { formatDay, formatFull, formatTime } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { openDirectDM } from '../lib/dm';
 import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessagePoll, type MessagePollVote, type MessageReaction, type Profile } from '../lib/types';
+import MessageContent from './MessageContent';
+import CallManager from './CallManager';
+import type { CallLog } from '../lib/types';
 import PollModal from './PollModal';
 import PollCard from './PollCard';
 
@@ -136,6 +139,7 @@ export default function Conversation() {
   const [dm, setDm] = useState<DM | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   const [reactionsReady, setReactionsReady] = useState(false);
   const [pins, setPins] = useState<MessagePin[]>([]);
@@ -158,6 +162,7 @@ export default function Conversation() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [callRequest, setCallRequest] = useState<'audio' | 'video' | null>(null);
   const [recording, setRecording] = useState(false);
 
   const [showSearch, setShowSearch] = useState(false);
@@ -189,6 +194,7 @@ export default function Conversation() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const lastMark = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const pressTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
   // Canal unique par instance/montage : sb.channel() réutilise un canal existant
@@ -312,6 +318,15 @@ export default function Conversation() {
     setGroupName((dmData as DM).name ?? '');
     setMembers(mems);
     setMessages(msgs);
+    // Journal d'appels (nécessite la migration 20261025_calls_stickers.sql ;
+    // erreur ignorée silencieusement si la table n'existe pas encore).
+    sb.from('call_logs')
+      .select('*')
+      .eq('dm_id', dmId)
+      .order('started_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!error) setCallLogs((data ?? []) as CallLog[]);
+      });
     setConvPinned(getPinnedDMs().includes(dmId));
     setLoading(false);
     requestAnimationFrame(() => scrollToBottom(false));
@@ -369,6 +384,21 @@ export default function Conversation() {
       ch.unsubscribe();
     };
   }, [sb, dmId, me, markRead, channelTag]);
+
+  // Temps réel : journal d'appels (table optionnelle, migration 20261025).
+  useEffect(() => {
+    if (!dmId || !me) return;
+    const ch = sb
+      .channel(`dm:${dmId}:calls:${channelTag}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_logs', filter: `dm_id=eq.${dmId}` }, (payload) => {
+        const c = payload.new as CallLog;
+        setCallLogs((prev) => (prev.some((x) => x.id === c.id) ? prev : [...prev, c]));
+      })
+      .subscribe();
+    return () => {
+      ch.unsubscribe();
+    };
+  }, [sb, dmId, me, channelTag]);
 
   // Temps réel : réactions + épinglés, UNIQUEMENT si les tables existent
   // (migration 20261023_reactions_pins.sql appliquée).
@@ -516,6 +546,72 @@ export default function Conversation() {
       ta.focus();
       ta.selectionStart = ta.selectionEnd = start + emoji.length;
     });
+  };
+
+  /**
+   * Envoi d'un GIF Tenor : l'URL distante est envoyée comme contenu du message
+   * et rendue comme image par MessageContent. Choix documenté : éviter un
+   * téléchargement + ré-upload (souvent bloqué par CORS) et ne pas dupliquer
+   * des gigaoctets de GIF dans le Storage. L'URL reste celle de Tenor.
+   */
+  const sendGif = async (url: string) => {
+    if (!dmId || sending) return;
+    setShowEmoji(false);
+    setSending(true);
+    try {
+      const { error } = await sb.from('messages').insert({
+        dm_id: dmId,
+        author_id: me,
+        content: url,
+        attachment_path: null,
+        attachment_name: null,
+        reply_to: null,
+      });
+      if (error) throw error;
+      requestAnimationFrame(() => scrollToBottom());
+      markRead();
+    } catch {
+      setSendError('Envoi du GIF impossible.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /**
+   * Envoi d'un autocollant de serveur : le fichier est COPIÉ dans le bucket
+   * « pieces-jointes » (pièce jointe normale). Ainsi, supprimer l'autocollant
+   * du serveur ne casse jamais les anciens messages.
+   */
+  const sendSticker = async (sticker: { image_path: string; name: string }) => {
+    if (!dmId || sending) return;
+    setShowEmoji(false);
+    setSending(true);
+    try {
+      const { data: signed } = await sb.storage.from('stickers').createSignedUrl(sticker.image_path, 300);
+      if (!signed) throw new Error('Autocollant indisponible.');
+      const res = await fetch(signed.signedUrl);
+      if (!res.ok) throw new Error('Téléchargement impossible.');
+      const blob = await res.blob();
+      const ext = sticker.image_path.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${dmId}/${crypto.randomUUID()}_sticker.${ext}`;
+      const { error: upErr } = await sb.storage.from('pieces-jointes').upload(path, blob);
+      if (upErr) throw upErr;
+      const { error } = await sb.from('messages').insert({
+        dm_id: dmId,
+        author_id: me,
+        content: '',
+        attachment_path: path,
+        attachment_name: `autocollant-${sticker.name}.${ext}`,
+        reply_to: null,
+      });
+      if (error) throw error;
+      requestAnimationFrame(() => scrollToBottom());
+      markRead();
+    } catch {
+      setSendError('Envoi de l’autocollant impossible.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const saveEdit = async (m: Message) => {
@@ -811,6 +907,29 @@ export default function Conversation() {
 
   const replyTarget = (id: string | null) => messages.find((m) => m.id === id) ?? null;
 
+  /** Libellé d'une entrée système d'appel dans le fil. */
+  const callLabel = (c: CallLog) => {
+    const kind = c.kind === 'video' ? 'Appel vidéo' : 'Appel vocal';
+    const date = formatFull(c.started_at);
+    if (c.status === 'termine' && c.ended_at) {
+      const secs = Math.max(
+        0,
+        Math.round((new Date(c.ended_at).getTime() - new Date(c.started_at).getTime()) / 1000),
+      );
+      const dur = secs < 60 ? `${secs} s` : `${Math.floor(secs / 60)} min${secs % 60 ? ` ${secs % 60} s` : ''}`;
+      return `${kind} terminé — ${dur} — ${date}`;
+    }
+    if (c.status === 'refuse') return `${kind} refusé — ${date}`;
+    return `${kind} manqué — ${date}`;
+  };
+
+  /** Fil chronologique : messages + entrées système d'appels. */
+  const timeline: Array<Message | CallLog> = [...messages, ...callLogs].sort((a, b) => {
+    const ta = 'started_at' in a ? a.started_at : a.created_at;
+    const tb = 'started_at' in b ? b.started_at : b.created_at;
+    return ta.localeCompare(tb);
+  });
+
   const reactionsByMsg = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
   for (const r of reactions) {
     const arr = reactionsByMsg.get(r.message_id) ?? [];
@@ -875,7 +994,13 @@ export default function Conversation() {
               </span>
             </button>
             <button
-              onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
+              onClick={() => {
+                if (dm.is_group) {
+                  flash('Les appels de groupe arrivent avec une prochaine mise à jour de Kora.');
+                } else {
+                  setCallRequest('audio');
+                }
+              }}
               className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
               title="Appel vocal"
               aria-label="Appel vocal"
@@ -883,7 +1008,13 @@ export default function Conversation() {
               {phoneIcon}
             </button>
             <button
-              onClick={() => flash('Les appels vidéo arrivent avec la prochaine mise à jour de Kora.')}
+              onClick={() => {
+                if (dm.is_group) {
+                  flash('Les appels de groupe arrivent avec une prochaine mise à jour de Kora.');
+                } else {
+                  setCallRequest('video');
+                }
+              }}
               className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
               title="Appel vidéo"
               aria-label="Appel vidéo"
@@ -995,13 +1126,38 @@ export default function Conversation() {
 
         {/* Messages */}
         <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-3 py-4 md:px-5">
-          {messages.length === 0 ? (
+          {timeline.length === 0 ? (
             <EmptyState
               title="Aucun message pour l’instant"
               text={dm.is_group ? 'Lance la discussion !' : `Dis bonjour à ${friend?.display_name || friend?.username || 'ton ami'} !`}
             />
           ) : (
-            messages.map((m) => {
+            timeline.map((item) => {
+              // Entrée système : appel terminé / manqué / refusé.
+              if ('caller_id' in item) {
+                const c = item;
+                const day = formatDay(c.started_at);
+                const showDay = day !== lastDay;
+                lastDay = day;
+                lastAuthor = '';
+                lastTs = 0;
+                return (
+                  <div key={c.id}>
+                    {showDay && (
+                      <div className="my-4 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-line" />
+                        <span className="text-xs font-semibold text-muted">{day}</span>
+                        <div className="h-px flex-1 bg-line" />
+                      </div>
+                    )}
+                    <div className="my-2 flex items-center justify-center gap-2 rounded-xl bg-surface2/60 px-3 py-2 text-center text-xs text-muted">
+                      <span>{c.kind === 'video' ? '📹' : '📞'}</span>
+                      <span>{callLabel(c)}</span>
+                    </div>
+                  </div>
+                );
+              }
+              const m = item;
               const author = profilesById.get(m.author_id);
               const isMe = m.author_id === me;
               const day = formatDay(m.created_at);
@@ -1093,7 +1249,7 @@ export default function Conversation() {
                         </div>
                       ) : (
                         <>
-                          {m.content && <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.content}</p>}
+                          {m.content && <MessageContent content={m.content} />}
                           {m.attachment_path && <Attachment path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
                           {polls[m.id] && (
                             <PollCard
@@ -1184,16 +1340,22 @@ export default function Conversation() {
                     <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
                     <div className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
                       <button
-                        onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
+                        onClick={() => { setShowAttachMenu(false); photoInput.current?.click(); }}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                       >
-                        <span className="text-lg">📎</span> Joindre un fichier
+                        <span className="text-lg">🖼️</span> Photos
                       </button>
                       <button
                         onClick={() => { setShowAttachMenu(false); setShowPollModal(true); }}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                       >
-                        <span className="text-lg">📊</span> Créer un sondage
+                        <span className="text-lg">📊</span> Sondage
+                      </button>
+                      <button
+                        onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                      >
+                        <span className="text-lg">📎</span> Fichiers
                       </button>
                     </div>
                   </>
@@ -1201,14 +1363,19 @@ export default function Conversation() {
                 <button
                   onClick={() => setShowAttachMenu((v) => !v)}
                   className="shrink-0 rounded-full bg-surface p-2 text-muted hover:text-ink"
-                  title="Joindre ou créer"
-                  aria-label="Joindre un fichier ou créer un sondage"
+                  title={showAttachMenu ? 'Fermer le menu' : 'Joindre ou créer'}
+                  aria-label={showAttachMenu ? 'Fermer le menu' : 'Joindre un fichier ou créer un sondage'}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M12 5v14 M5 12h14" />
-                  </svg>
+                  {showAttachMenu ? (
+                    <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none">✕</span>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M12 5v14 M5 12h14" />
+                    </svg>
+                  )}
                 </button>
                 <input ref={fileInput} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                <input ref={photoInput} type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
                 <textarea
                   ref={composerRef}
                   value={draft}
@@ -1422,7 +1589,26 @@ export default function Conversation() {
         </aside>
       )}
 
-      {showEmoji && <EmojiPicker onPick={(e) => insertEmoji(e)} onClose={() => setShowEmoji(false)} />}
+      {showEmoji && (
+        <EmojiPicker
+          onPick={(e) => insertEmoji(e)}
+          onPickGif={(url) => sendGif(url)}
+          onPickSticker={(s) => sendSticker(s)}
+          onClose={() => setShowEmoji(false)}
+        />
+      )}
+
+      {!dm.is_group && friend && (
+        <CallManager
+          sb={sb}
+          me={me}
+          dmId={dmId!}
+          peer={friend}
+          request={callRequest}
+          onRequestHandled={() => setCallRequest(null)}
+          flash={flash}
+        />
+      )}
 
       {reactionTarget && (
         <EmojiPicker
