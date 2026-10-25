@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Avatar from './Avatar';
 import ProfileCard from './ProfileCard';
+import VerifiedBadge from './VerifiedBadge';
 import { openDirectDM } from '../lib/dm';
 import { ROLE_COLORS, ROLE_LABELS, ROLE_RANK, type CommunityMember, type CommunityRole, type Profile } from '../lib/types';
 
@@ -169,7 +170,10 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
         >
           <Avatar profile={p} size={32} status={st} showStatus />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold">{p?.display_name || p?.username || 'Inconnu'}</span>
+            <span className="flex items-center gap-1.5 text-sm font-semibold">
+              <span className="truncate">{p?.display_name || p?.username || 'Inconnu'}</span>
+              {p?.is_verified && <VerifiedBadge size={14} />}
+            </span>
             <span
               className="mt-0.5 inline-block rounded-full px-2 py-px text-[11px] font-bold"
               style={{ color: ROLE_COLORS[m.role], backgroundColor: `${ROLE_COLORS[m.role]}22` }}

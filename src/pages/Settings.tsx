@@ -862,7 +862,7 @@ function AboutTab() {
 /* ------------------------------------------------------------------ */
 export default function Settings() {
   const [params, setParams] = useSearchParams();
-  const { signOut } = useAuth();
+  const { signOut, profile } = useAuth();
   const requested = params.get('onglet') as TabId | null;
   const [tab, setTab] = useState<TabId>(TABS.some((t) => t.id === requested) ? (requested as TabId) : 'compte');
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -896,6 +896,18 @@ export default function Settings() {
             </button>
           ))}
         </nav>
+        {profile?.is_site_admin && (
+          <Link
+            to="/app/admin"
+            className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-primary hover:bg-surface2/60 md:mt-2 md:py-2 md:text-sm md:font-medium"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">🛡️</span>
+            <span className="flex-1">Panneau d’administration</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </Link>
+        )}
         <button
           onClick={signOut}
           className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-danger hover:bg-surface2/60 md:mt-6 md:py-2 md:text-sm md:font-medium"

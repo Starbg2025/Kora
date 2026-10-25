@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Logo from '../components/Logo';
+import { requireSupabase } from '../lib/supabase';
 
 const FEATURES = [
   {
@@ -84,12 +86,25 @@ const FEATURES = [
 
 const ROADMAP = [
   { title: 'Serveurs & salons', text: 'Des espaces communautaires avec salons texte, rôles et permissions.' },
-  { title: 'Appels audio & vidéo', text: 'Des salons vocaux persistants et des appels en un clic.' },
+  { title: 'Appels audio & vidéo', text: 'Des appels 1:1 en un clic, et bientôt des salons vocaux.' },
   { title: 'Forum & scène', text: 'Des discussions organisées par sujet et des événements audio.' },
-  { title: 'Kora Plus', text: 'Une offre premium honnête : plus d’espace, plus de personnalisation.' },
+  { title: 'Salons vocaux', text: 'Rejoins un salon vocal de ta communauté, en un clic.' },
 ];
 
 export default function Landing() {
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  useEffect(() => {
+    requireSupabase()
+      .from('site_announcements')
+      .select('text')
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setAnnouncement((data as { text: string }).text);
+      }, () => {});
+  }, []);
   return (
     <div className="min-h-screen bg-base text-ink">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -113,10 +128,19 @@ export default function Landing() {
         </nav>
       </header>
 
+      {announcement && (
+        <div className="mx-auto max-w-6xl px-6">
+          <p className="rounded-xl bg-primary/15 px-4 py-2.5 text-center text-sm">
+            <span className="font-bold text-primary">Annonce · </span>
+            {announcement}
+          </p>
+        </div>
+      )}
+
       <main>
-        <section className="mx-auto max-w-6xl px-6 pb-20 pt-16 text-center sm:pt-24">
+        <section className="mx-auto max-w-6xl px-6 pb-16 pt-12 text-center sm:pt-16">
           <p className="mb-5 inline-block rounded-full bg-surface2 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-accent">
-            Phase 1 — messages privés
+            Gratuit, sans abonnement
           </p>
           <h1 className="mx-auto max-w-3xl text-4xl font-extrabold leading-tight tracking-tight sm:text-6xl">
             Rassemble ta communauté. <span className="text-primary">Parle, joue, crée.</span>

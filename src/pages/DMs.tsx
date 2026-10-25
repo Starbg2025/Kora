@@ -5,6 +5,7 @@ import { usePresence } from '../context/PresenceContext';
 import { useFriends } from '../hooks/useFriends';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
+import VerifiedBadge from '../components/VerifiedBadge';
 import Modal from '../components/Modal';
 import ProfileCard from '../components/ProfileCard';
 import { formatShort } from '../lib/format';
@@ -456,6 +457,7 @@ export default function DMs() {
                         <p className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold">
                           {isPinned && <span title="Épinglée">📌</span>}
                           <span className="truncate">{dmTitle(v)}</span>
+                          {!v.dm.is_group && v.others[0]?.is_verified && <VerifiedBadge size={13} />}
                         </p>
                         {v.lastMessage && !isBlocked && (
                           <span className="shrink-0 text-[11px] text-muted">{formatShort(v.lastMessage.created_at)}</span>

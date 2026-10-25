@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
+import { useCall } from '../context/CallContext';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
@@ -16,7 +17,7 @@ import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { openDirectDM } from '../lib/dm';
 import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessagePoll, type MessagePollVote, type MessageReaction, type Profile } from '../lib/types';
 import MessageContent from './MessageContent';
-import CallManager from './CallManager';
+import VerifiedBadge from './VerifiedBadge';
 import type { CallLog } from '../lib/types';
 import PollModal from './PollModal';
 import PollCard from './PollCard';
@@ -133,6 +134,7 @@ const searchIcon = (
 export default function Conversation() {
   const { dmId } = useParams<{ dmId: string }>();
   const { sb, user, settings, saveSettings } = useAuth();
+  const { startCall } = useCall();
   const { online, setTyping } = usePresence();
   const navigate = useNavigate();
 
@@ -162,7 +164,6 @@ export default function Conversation() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
-  const [callRequest, setCallRequest] = useState<'audio' | 'video' | null>(null);
   const [recording, setRecording] = useState(false);
 
   const [showSearch, setShowSearch] = useState(false);
@@ -188,6 +189,9 @@ export default function Conversation() {
   const [groupName, setGroupName] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [newBelow, setNewBelow] = useState(false);
+  // Temps réel dégradé : le canal ne s'est pas connecté → rafraîchissement
+  // automatique (filet de sécurité, jamais de refresh manuel demandé).
+  const [rtDegraded, setRtDegraded] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const msgRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -359,6 +363,7 @@ export default function Conversation() {
   // (réactions, épinglés) est absente, cela ne doit JAMAIS casser les messages.
   useEffect(() => {
     if (!dmId || !me) return;
+    let subscribed = false;
     const ch = sb
       .channel(`dm:${dmId}:${channelTag}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `dm_id=eq.${dmId}` }, (payload) => {
@@ -379,11 +384,42 @@ export default function Conversation() {
         const old = payload.old as { id: string };
         setMessages((prev) => prev.filter((x) => x.id !== old.id));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          subscribed = true;
+          setRtDegraded(false);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRtDegraded(true);
+        }
+      });
+    // Si le canal ne se connecte pas sous 5 s, on bascule sur le filet.
+    const degradedTimer = window.setTimeout(() => {
+      if (!subscribed) setRtDegraded(true);
+    }, 5000);
     return () => {
+      window.clearTimeout(degradedTimer);
       ch.unsubscribe();
     };
   }, [sb, dmId, me, markRead, channelTag]);
+
+  // Filet de sécurité : si le temps réel est en panne, rafraîchir les
+  // messages toutes les 5 s tant que la vue est ouverte. L'utilisateur ne
+  // doit jamais avoir à rafraîchir la page manuellement.
+  useEffect(() => {
+    if (!rtDegraded || !dmId) return;
+    const t = window.setInterval(async () => {
+      const { data } = await sb.from('messages').select('*').eq('dm_id', dmId).order('created_at', { ascending: true }).limit(500);
+      if (data) {
+        setMessages((prev) => {
+          const known = new Set(prev.map((m) => m.id));
+          const fresh = (data as Message[]).filter((m) => !known.has(m.id));
+          if (fresh.length === 0) return prev;
+          return [...prev, ...fresh].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        });
+      }
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [rtDegraded, sb, dmId]);
 
   // Temps réel : journal d'appels (table optionnelle, migration 20261025).
   useEffect(() => {
@@ -510,15 +546,21 @@ export default function Conversation() {
         const { error: upErr } = await sb.storage.from('pieces-jointes').upload(attachment_path, file);
         if (upErr) throw upErr;
       }
-      const { error } = await sb.from('messages').insert({
+      const { data: inserted, error } = await sb.from('messages').insert({
         dm_id: dmId,
         author_id: me,
         content,
         attachment_path,
         attachment_name,
         reply_to: replyTo?.id ?? null,
-      });
+      }).select().single();
       if (error) throw error;
+      // Envoi optimiste : le message apparaît immédiatement, sans attendre
+      // l'écho temps réel (dédupliqué par id si l'écho arrive ensuite).
+      if (inserted) {
+        const m = inserted as Message;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       setDraft('');
       setFile(null);
       setReplyTo(null);
@@ -559,15 +601,19 @@ export default function Conversation() {
     setShowEmoji(false);
     setSending(true);
     try {
-      const { error } = await sb.from('messages').insert({
+      const { data: inserted, error } = await sb.from('messages').insert({
         dm_id: dmId,
         author_id: me,
         content: url,
         attachment_path: null,
         attachment_name: null,
         reply_to: null,
-      });
+      }).select().single();
       if (error) throw error;
+      if (inserted) {
+        const m = inserted as Message;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       requestAnimationFrame(() => scrollToBottom());
       markRead();
     } catch {
@@ -596,15 +642,19 @@ export default function Conversation() {
       const path = `${dmId}/${crypto.randomUUID()}_sticker.${ext}`;
       const { error: upErr } = await sb.storage.from('pieces-jointes').upload(path, blob);
       if (upErr) throw upErr;
-      const { error } = await sb.from('messages').insert({
+      const { data: inserted, error } = await sb.from('messages').insert({
         dm_id: dmId,
         author_id: me,
         content: '',
         attachment_path: path,
         attachment_name: `autocollant-${sticker.name}.${ext}`,
         reply_to: null,
-      });
+      }).select().single();
       if (error) throw error;
+      if (inserted) {
+        const m = inserted as Message;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       requestAnimationFrame(() => scrollToBottom());
       markRead();
     } catch {
@@ -997,8 +1047,8 @@ export default function Conversation() {
               onClick={() => {
                 if (dm.is_group) {
                   flash('Les appels de groupe arrivent avec une prochaine mise à jour de Kora.');
-                } else {
-                  setCallRequest('audio');
+                } else if (friend) {
+                  startCall(dmId!, friend, 'audio');
                 }
               }}
               className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
@@ -1011,8 +1061,8 @@ export default function Conversation() {
               onClick={() => {
                 if (dm.is_group) {
                   flash('Les appels de groupe arrivent avec une prochaine mise à jour de Kora.');
-                } else {
-                  setCallRequest('video');
+                } else if (friend) {
+                  startCall(dmId!, friend, 'video');
                 }
               }}
               className="shrink-0 rounded-lg p-2.5 text-muted hover:bg-surface2 hover:text-ink"
@@ -1211,9 +1261,10 @@ export default function Conversation() {
                         <p className="flex flex-wrap items-baseline gap-x-2">
                           <button
                             onClick={() => { if (author) { setProfileTarget(author); setShowProfile(true); } }}
-                            className={`text-sm font-bold hover:underline ${isMe ? 'text-primary' : ''}`}
+                            className={`flex items-center gap-1.5 text-sm font-bold hover:underline ${isMe ? 'text-primary' : ''}`}
                           >
-                            {author?.display_name || author?.username || 'Inconnu'}
+                            <span>{author?.display_name || author?.username || 'Inconnu'}</span>
+                            {author?.is_verified && <VerifiedBadge size={14} />}
                           </button>
                           {isPinned && <span title="Message épinglé">📌</span>}
                           <span className="text-[11px] text-muted" title={formatFull(m.created_at)}>
@@ -1314,6 +1365,11 @@ export default function Conversation() {
 
         {/* Compositeur façon Discord */}
         <div className="border-t border-line px-3 py-2.5 md:px-5 md:py-3">
+          {rtDegraded && (
+            <p className="mb-2 rounded-lg bg-accent/10 px-3 py-1.5 text-center text-xs text-accent">
+              Connexion temps réel interrompue — actualisation automatique active.
+            </p>
+          )}
           {recording ? (
             <VoiceRecorder onDone={(f) => { setRecording(false); setFile(f); }} onCancel={() => setRecording(false)} />
           ) : (
@@ -1595,18 +1651,6 @@ export default function Conversation() {
           onPickGif={(url) => sendGif(url)}
           onPickSticker={(s) => sendSticker(s)}
           onClose={() => setShowEmoji(false)}
-        />
-      )}
-
-      {!dm.is_group && friend && (
-        <CallManager
-          sb={sb}
-          me={me}
-          dmId={dmId!}
-          peer={friend}
-          request={callRequest}
-          onRequestHandled={() => setCallRequest(null)}
-          flash={flash}
         />
       )}
 

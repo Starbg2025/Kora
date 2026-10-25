@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { PresenceProvider } from './context/PresenceContext';
 import { NotificationsProvider } from './context/NotificationsContext';
+import { CallProvider } from './context/CallContext';
 import { isSupabaseConfigured } from './lib/supabase';
 import RequireAuth from './components/RequireAuth';
 import AppShell from './components/AppShell';
@@ -23,6 +24,7 @@ import Discover from './pages/Discover';
 import Community from './pages/Community';
 import ChannelRoute from './pages/ChannelRoute';
 import InvitePage from './pages/InvitePage';
+import AdminPage from './pages/AdminPage';
 
 /** Écran affiché quand Supabase n'est pas configuré : honnête, sans mode démo. */
 function ConfigRequired() {
@@ -80,6 +82,7 @@ export default function App() {
       <ThemeProvider>
         <PresenceProvider>
           <NotificationsProvider>
+          <CallProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/confidentialite" element={<Confidentialite />} />
@@ -105,6 +108,7 @@ export default function App() {
               </Route>
               <Route path="amis" element={<Friends />} />
               <Route path="parametres" element={<Settings />} />
+              <Route path="admin" element={<AdminPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="communautes" element={<Communities />} />
               <Route path="decouvrir" element={<Discover />} />
@@ -115,6 +119,7 @@ export default function App() {
             <Route path="/invitation/:code" element={<InvitePage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </CallProvider>
           </NotificationsProvider>
         </PresenceProvider>
       </ThemeProvider>

@@ -4,6 +4,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { containsMention, snippet } from '../lib/mentions';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
+import VerifiedBadge from './VerifiedBadge';
 import MessageContent from './MessageContent';
 import MessageToolbar from './MessageToolbar';
 import Modal from './Modal';
@@ -105,6 +106,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [reportTarget, setReportTarget] = useState<CommunityMessage | null>(null);
   const [myTimeoutUntil, setMyTimeoutUntil] = useState<string | null>(null);
   const [showPins, setShowPins] = useState(false);
+  // Temps réel dégradé : filet de sécurité par rafraîchissement automatique.
+  const [rtDegraded, setRtDegraded] = useState(false);
   const [toast, setToast] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -224,6 +227,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   // Temps réel : messages (canal dédié, topic unique par montage)
   useEffect(() => {
     if (!channel.id || !me) return;
+    let subscribed = false;
     const ch = sb
       .channel(`ch:${channel.id}:${channelTag}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_messages', filter: `channel_id=eq.${channel.id}` }, (payload) => {
@@ -256,11 +260,40 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
         const old = payload.old as { id: string };
         setMessages((prev) => prev.filter((x) => x.id !== old.id));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          subscribed = true;
+          setRtDegraded(false);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRtDegraded(true);
+        }
+      });
+    // Si le canal ne se connecte pas sous 5 s, on bascule sur le filet.
+    const degradedTimer = window.setTimeout(() => {
+      if (!subscribed) setRtDegraded(true);
+    }, 5000);
     return () => {
+      window.clearTimeout(degradedTimer);
       ch.unsubscribe();
     };
   }, [sb, channel.id, me, channelTag, notify, profile?.username, communityId, channel.name]);
+
+  // Filet de sécurité : rafraîchissement automatique si le temps réel est en panne.
+  useEffect(() => {
+    if (!rtDegraded || !channel.id) return;
+    const t = window.setInterval(async () => {
+      const { data } = await sb.from('community_messages').select('*').eq('channel_id', channel.id).order('created_at', { ascending: true }).limit(500);
+      if (data) {
+        setMessages((prev) => {
+          const known = new Set(prev.map((m) => m.id));
+          const fresh = (data as CommunityMessage[]).filter((m) => !known.has(m.id));
+          if (fresh.length === 0) return prev;
+          return [...prev, ...fresh].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        });
+      }
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [rtDegraded, sb, channel.id]);
 
   // Temps réel : réactions + épinglés (canal séparé)
   useEffect(() => {
@@ -333,15 +366,20 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
         const { error: upErr } = await sb.storage.from('pieces-jointes').upload(attachment_path, file);
         if (upErr) throw upErr;
       }
-      const { error } = await sb.from('community_messages').insert({
+      const { data: inserted, error } = await sb.from('community_messages').insert({
         channel_id: channel.id,
         author_id: me,
         content,
         attachment_path,
         attachment_name,
         reply_to: replyTo?.id ?? null,
-      });
+      }).select().single();
       if (error) throw error;
+      // Envoi optimiste : affichage immédiat, dédupliqué par id à l'écho realtime.
+      if (inserted) {
+        const m = inserted as CommunityMessage;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       setDraft('');
       setFile(null);
       setReplyTo(null);
@@ -375,15 +413,19 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     setShowEmoji(false);
     setSending(true);
     try {
-      const { error } = await sb.from('community_messages').insert({
+      const { data: inserted, error } = await sb.from('community_messages').insert({
         channel_id: channel.id,
         author_id: me,
         content: url,
         attachment_path: null,
         attachment_name: null,
         reply_to: null,
-      });
+      }).select().single();
       if (error) throw error;
+      if (inserted) {
+        const m = inserted as CommunityMessage;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       requestAnimationFrame(() => scrollToBottom());
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Envoi du GIF impossible.');
@@ -407,15 +449,19 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       const path = `${channel.id}/${crypto.randomUUID()}_sticker.${ext}`;
       const { error: upErr } = await sb.storage.from('pieces-jointes').upload(path, blob);
       if (upErr) throw upErr;
-      const { error } = await sb.from('community_messages').insert({
+      const { data: inserted, error } = await sb.from('community_messages').insert({
         channel_id: channel.id,
         author_id: me,
         content: '',
         attachment_path: path,
         attachment_name: `autocollant-${sticker.name}.${ext}`,
         reply_to: null,
-      });
+      }).select().single();
       if (error) throw error;
+      if (inserted) {
+        const m = inserted as CommunityMessage;
+        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      }
       requestAnimationFrame(() => scrollToBottom());
     } catch {
       setSendError('Envoi de l’autocollant impossible.');
@@ -618,10 +664,11 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                       {!compact && (
                         <p className="flex flex-wrap items-baseline gap-x-2">
                           <span
-                            className="font-bold"
+                            className="flex items-center gap-1.5 font-bold"
                             style={role && role !== 'membre' ? { color: ROLE_COLORS[role] } : undefined}
                           >
-                            {author?.display_name || author?.username || 'Inconnu'}
+                            <span>{author?.display_name || author?.username || 'Inconnu'}</span>
+                            {author?.is_verified && <VerifiedBadge size={14} />}
                           </span>
                           <span className="text-xs text-muted">{formatTime(m.created_at)}</span>
                           {pinnedIds.has(m.id) && <span className="text-xs" title="Épinglé">📌</span>}
@@ -701,6 +748,11 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
 
       {/* Compositeur */}
       <div className="shrink-0 border-t border-line bg-surface px-3 py-2.5 md:px-5">
+        {rtDegraded && (
+          <p className="mb-2 rounded-lg bg-accent/10 px-3 py-1.5 text-center text-xs text-accent">
+            Connexion temps réel interrompue — actualisation automatique active.
+          </p>
+        )}
         {replyTo && (
           <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
             <p className="truncate">

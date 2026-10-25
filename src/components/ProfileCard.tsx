@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Avatar from './Avatar';
+import VerifiedBadge from './VerifiedBadge';
 import { formatDate } from '../lib/format';
 import { STATUS_COLORS, STATUS_LABELS, type Friendship, type Profile } from '../lib/types';
 
@@ -55,8 +56,16 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
             </span>
           </div>
 
-          <h2 className="text-xl font-extrabold">{profile.display_name || profile.username}</h2>
+          <h2 className="flex items-center gap-2 text-xl font-extrabold">
+            <span>{profile.display_name || profile.username}</span>
+            {profile.is_verified && <VerifiedBadge size={18} />}
+          </h2>
           <p className="text-sm text-muted">@{profile.username}</p>
+          {profile.is_creator && (
+            <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-primary">
+              Créateur de Kora
+            </p>
+          )}
 
           <div className="mt-4 flex gap-2">
             <button

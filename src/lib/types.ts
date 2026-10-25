@@ -12,6 +12,9 @@ export interface Profile {
   created_at: string;
   banner_color: string | null;
   is_disabled: boolean;
+  is_verified: boolean;
+  is_site_admin: boolean;
+  is_creator: boolean;
 }
 
 export interface UserSettings {
