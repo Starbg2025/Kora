@@ -220,8 +220,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   const pushToast = useCallback(
     (t: Toast) => {
-      // Pas de toast si l'utilisateur est déjà sur la cible
-      if (t.link && window.location.pathname.startsWith(t.link.split('?')[0])) return;
+      // Pas de toast si l'utilisateur est déjà sur la cible (ancre ignorée).
+      if (t.link && window.location.pathname.startsWith(t.link.split('?')[0].split('#')[0])) return;
       setToasts((prev) => [...prev.slice(-2), t]);
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
       toastTimer.current = window.setTimeout(() => setToasts([]), 4500);

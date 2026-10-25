@@ -1,5 +1,5 @@
 import type { Message, Profile } from '../lib/types';
-import { Copy, Eye, Flag, Forward, Link2, Pencil, Pin, Reply, Trash2 } from 'lucide-react';
+import { Copy, Eye, Flag, Forward, Languages, Link2, Pencil, Pin, Reply, Trash2 } from 'lucide-react';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '✅', '💀', '🙂'];
 
@@ -18,6 +18,8 @@ interface Props {
   onCopyLink: () => void;
   onDelete: () => void;
   onReport?: () => void;
+  onTranslate?: () => void;
+  onCopyId?: () => void;
   onClose: () => void;
 }
 
@@ -71,9 +73,11 @@ export default function MessageActionSheet(p: Props) {
 
         <Group>
           {p.message.content && <Row onClick={p.onCopy} icon={<Copy size={18} />}>Copier le texte</Row>}
+          {p.message.content && p.onTranslate && <Row onClick={p.onTranslate} icon={<Languages size={18} />}>Traduire</Row>}
           <Row onClick={p.onMarkUnread} icon={<Eye size={18} />}>Marquer comme non lu</Row>
           <Row onClick={p.onTogglePin} icon={<Pin size={18} />}>{p.isPinned ? 'Désépingler le message' : 'Épingler le message'}</Row>
           <Row onClick={p.onCopyLink} icon={<Link2 size={18} />}>Copier le lien du message</Row>
+          {p.onCopyId && <Row onClick={p.onCopyId} icon={<Copy size={18} />}>Copier l’ID</Row>}
           {!p.isMe && p.onReport && <Row onClick={p.onReport} icon={<Flag size={18} />}>Signaler</Row>}
           {p.isMe && <Row onClick={p.onDelete} icon={<Trash2 size={18} />} danger>Supprimer le message</Row>}
         </Group>

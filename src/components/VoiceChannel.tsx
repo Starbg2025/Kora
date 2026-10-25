@@ -65,6 +65,28 @@ export default function VoiceChannel({
   const [speaking, setSpeaking] = useState<Record<string, boolean>>({});
   const [muted, setMuted] = useState(false);
   const [notice, setNotice] = useState('');
+  // Voix & Audio : mode (activité vocale / push-to-talk), contraintes WebRTC
+  // réelles, test micro, « rejoindre en muet » (persisté sur l'appareil).
+  const [voiceMode, setVoiceMode] = useState<'vad' | 'ptt'>(() => {
+    try {
+      return (localStorage.getItem('kora:voice-mode') as 'vad' | 'ptt') || 'vad';
+    } catch {
+      return 'vad';
+    }
+  });
+  const [noiseSuppression, setNoiseSuppression] = useState(true);
+  const [echoCancellation, setEchoCancellation] = useState(true);
+  const [autoGain, setAutoGain] = useState(true);
+  const [joinMuted, setJoinMuted] = useState(() => {
+    try {
+      return localStorage.getItem('kora:voice-join-muted') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [pttActive, setPttActive] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [showAudioSettings, setShowAudioSettings] = useState(false);
 
   const channelRef = useRef<ReturnType<typeof sb.channel> | null>(null);
   const pcsRef = useRef(new Map<string, RTCPeerConnection>());
@@ -82,6 +104,67 @@ export default function VoiceChannel({
       members.find((m) => m.user_id === userId)?.profiles ?? extraProfilesRef.current[userId] ?? null,
     [members],
   );
+
+  const setVoiceModePersist = (m: 'vad' | 'ptt') => {
+    setVoiceMode(m);
+    try {
+      localStorage.setItem('kora:voice-mode', m);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+
+  const setJoinMutedPersist = (v: boolean) => {
+    setJoinMuted(v);
+    try {
+      localStorage.setItem('kora:voice-join-muted', v ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+
+  /** Applique les contraintes audio au micro local (si le navigateur les supporte). */
+  const applyAudioConstraints = useCallback(() => {
+    const track = localStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    track
+      .applyConstraints({ echoCancellation, noiseSuppression, autoGainControl: autoGain })
+      .catch(() => {
+        /* contrainte non supportée par le navigateur : ignorée, le vocal continue */
+      });
+  }, [echoCancellation, noiseSuppression, autoGain]);
+
+  useEffect(() => {
+    applyAudioConstraints();
+  }, [applyAudioConstraints]);
+
+  // Push-to-talk : le micro n'est actif que pendant l'appui (bouton ou Espace).
+  useEffect(() => {
+    if (!joined) return;
+    const track = localStreamRef.current?.getAudioTracks()[0];
+    if (track) track.enabled = !muted && (voiceMode === 'vad' || pttActive);
+  }, [joined, muted, voiceMode, pttActive]);
+
+  // Espace = parler (push-to-talk), sauf quand on tape dans un champ.
+  useEffect(() => {
+    if (!joined || voiceMode !== 'ptt') return;
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      setPttActive(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setPttActive(false);
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, [joined, voiceMode]);
 
   const sendSignal = useCallback((payload: VoiceSignal) => {
     const ch = channelRef.current;
@@ -250,6 +333,7 @@ export default function VoiceChannel({
   useEffect(() => () => leave(), [leave]);
 
   // Indicateur « parle » : volume réel, mesuré 4 fois par seconde.
+  // Le niveau du micro local alimente aussi la barre de test micro.
   useEffect(() => {
     const timer = window.setInterval(() => {
       const next: Record<string, boolean> = {};
@@ -261,7 +345,9 @@ export default function VoiceChannel({
           const v = (data[i] - 128) / 128;
           sum += v * v;
         }
-        next[key] = Math.sqrt(sum / data.length) > 0.02;
+        const rms = Math.sqrt(sum / data.length);
+        next[key] = rms > 0.02;
+        if (key === 'local') setMicLevel(Math.min(1, rms * 4));
       });
       setSpeaking(next);
     }, 250);
@@ -277,10 +363,17 @@ export default function VoiceChannel({
     setNotice('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: { echoCancellation, noiseSuppression, autoGainControl: autoGain },
         video: false,
       });
       localStreamRef.current = stream;
+      // « Rejoindre en muet » : micro coupé dès l'arrivée.
+      if (joinMuted) {
+        stream.getAudioTracks().forEach((t) => {
+          t.enabled = false;
+        });
+        setMuted(true);
+      }
       myJoinedAtRef.current = Date.now();
       // Contexte audio créé dans le geste de l'utilisateur (sinon suspendu).
       try {
@@ -318,11 +411,8 @@ export default function VoiceChannel({
   };
 
   const toggleMute = () => {
-    const next = !muted;
-    setMuted(next);
-    localStreamRef.current?.getAudioTracks().forEach((t) => {
-      t.enabled = !next;
-    });
+    // L'activation réelle de la piste est gérée par l'effet PTT/muet ci-dessus.
+    setMuted((prev) => !prev);
   };
 
   const full = participants.length >= MAX_PARTICIPANTS && !joined;
@@ -373,6 +463,52 @@ export default function VoiceChannel({
           </div>
         )}
         {notice && <p className="mt-4 rounded-xl bg-surface2 px-4 py-3 text-center text-sm">{notice}</p>}
+        <div className="mx-auto mt-4 max-w-md rounded-2xl border border-line bg-surface p-4">
+          <button onClick={() => setShowAudioSettings((v) => !v)} className="flex w-full items-center justify-between text-left font-bold">
+            Voix & Audio
+            <span className="text-muted">{showAudioSettings ? '▲' : '▼'}</span>
+          </button>
+          {showAudioSettings && (
+            <div className="mt-3 space-y-3 text-sm">
+              <div>
+                <p className="mb-1 font-semibold">Mode d’activation du micro</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setVoiceModePersist('vad')}
+                    className={`flex-1 rounded-xl px-3 py-2 font-semibold ${voiceMode === 'vad' ? 'bg-primary text-white' : 'bg-surface2 hover:bg-line'}`}
+                  >
+                    Activité vocale
+                  </button>
+                  <button
+                    onClick={() => setVoiceModePersist('ptt')}
+                    className={`flex-1 rounded-xl px-3 py-2 font-semibold ${voiceMode === 'ptt' ? 'bg-primary text-white' : 'bg-surface2 hover:bg-line'}`}
+                  >
+                    Push-to-talk
+                  </button>
+                </div>
+                {voiceMode === 'ptt' && (
+                  <p className="mt-1 text-xs text-muted">Maintiens le bouton « Parler » ou la touche Espace (hors champ de saisie) pour parler.</p>
+                )}
+              </div>
+              <ToggleRow label="Suppression de bruit" desc="Filtre les bruits de fond via WebRTC." value={noiseSuppression} onChange={setNoiseSuppression} />
+              <ToggleRow label="Annulation d’écho" desc="Évite l’écho de tes haut-parleurs." value={echoCancellation} onChange={setEchoCancellation} />
+              <ToggleRow label="Gain automatique" desc="Ajuste ton volume automatiquement." value={autoGain} onChange={setAutoGain} />
+              <ToggleRow label="Rejoindre en muet" desc="Ton micro est coupé dès ton arrivée dans un vocal." value={joinMuted} onChange={setJoinMutedPersist} />
+              <div>
+                <p className="mb-1 font-semibold">Test du micro</p>
+                <div className="h-3 overflow-hidden rounded-full bg-surface2">
+                  <div
+                    className={`h-full transition-all duration-150 ${micLevel > 0.7 ? 'bg-danger' : micLevel > 0.3 ? 'bg-accent' : 'bg-[#22C55E]'}`}
+                    style={{ width: `${Math.round(micLevel * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {joined ? (micLevel > 0.02 ? 'Ton micro capte du son.' : 'Parle pour tester ton niveau.') : 'Rejoins le vocal pour tester ton micro.'}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
         <p className="mt-4 text-center text-xs text-muted">
           Vocal de groupe en pair-à-pair (6 personnes maximum). Les grands salons vocaux arriveront avec un serveur dédié.
         </p>
@@ -397,6 +533,18 @@ export default function VoiceChannel({
             >
               {muted ? <MicOff size={20} /> : <Mic size={20} />}
             </button>
+            {voiceMode === 'ptt' && (
+              <button
+                onPointerDown={() => setPttActive(true)}
+                onPointerUp={() => setPttActive(false)}
+                onPointerLeave={() => setPttActive(false)}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`select-none rounded-2xl px-6 py-3 text-sm font-bold text-white ${pttActive ? 'bg-[#22C55E]' : 'bg-surface2 text-ink hover:bg-line'}`}
+                title="Maintenir pour parler (ou Espace)"
+              >
+                {pttActive ? 'Tu parles…' : 'Maintenir pour parler'}
+              </button>
+            )}
             <button
               onClick={leave}
               className="flex h-14 w-14 items-center justify-center rounded-full bg-danger text-xl text-white hover:opacity-90"
@@ -413,5 +561,28 @@ export default function VoiceChannel({
         <RemoteAudio key={peerId} stream={stream} />
       ))}
     </div>
+  );
+}
+
+function ToggleRow({ label, desc, value, onChange }: { label: string; desc: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-surface2 px-3 py-2.5">
+      <span>
+        <span className="block font-semibold">{label}</span>
+        <span className="block text-xs text-muted">{desc}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        onClick={(e) => {
+          e.preventDefault();
+          onChange(!value);
+        }}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${value ? 'bg-primary' : 'bg-line'}`}
+      >
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${value ? 'left-[22px]' : 'left-0.5'}`} />
+      </button>
+    </label>
   );
 }

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { AtSign, Calendar, Globe, Play, type LucideIcon } from 'lucide-react';
+import { AtSign, Calendar, Copy, Globe, Play, type LucideIcon } from 'lucide-react';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../lib/format';
+import { parseProfileTheme } from '../lib/frames';
+import { isDevMode } from '../lib/devMode';
 import { effectiveStatus } from '../lib/privacy';
 import { STATUS_COLORS, STATUS_LABELS, type Friendship, type Profile } from '../lib/types';
 
@@ -33,6 +35,13 @@ export default function ProfileCard({ profile, friendship: friendshipProp, statu
   const [tab, setTab] = useState<'principal' | 'activite'>('principal');
   const { sb, user } = useAuth();
   const [friendship, setFriendship] = useState<Friendship | null>(friendshipProp ?? null);
+  // Note privée (visible uniquement par son auteur) + serveurs en commun.
+  const [note, setNote] = useState('');
+  const [noteLoaded, setNoteLoaded] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const [mutualServers, setMutualServers] = useState<{ id: string; name: string }[]>([]);
+  const devMode = isDevMode();
+  const theme = parseProfileTheme(profile.profile_theme);
 
   // Si l'appelant ne connaît pas le lien d'amitié, on le charge (sert à
   // appliquer le réglage de confidentialité du statut, sans jamais l'inventer).
@@ -64,18 +73,75 @@ export default function ProfileCard({ profile, friendship: friendshipProp, statu
   const shownStatus = visibleStatus === 'invisible' ? 'hors_ligne' : visibleStatus;
   const dot = STATUS_COLORS[shownStatus] ?? STATUS_COLORS.hors_ligne;
   const links = (profile.social_links ?? {}) as Record<string, string>;
+  const isOther = !!user && user.id !== profile.id;
+
+  // Charge la note privée et les serveurs en commun (données réelles uniquement).
+  useEffect(() => {
+    if (!user || !isOther) return;
+    let alive = true;
+    sb.from('profile_notes')
+      .select('note')
+      .eq('author_id', user.id)
+      .eq('target_id', profile.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (alive) {
+          setNote((data as { note?: string } | null)?.note ?? '');
+          setNoteLoaded(true);
+        }
+      });
+    sb.from('community_members')
+      .select('community_id')
+      .in('user_id', [user.id, profile.id])
+      .then(async ({ data }) => {
+        if (!alive || !data) return;
+        const counts = new Map<string, number>();
+        for (const r of data as { community_id: string }[]) counts.set(r.community_id, (counts.get(r.community_id) ?? 0) + 1);
+        const mutualIds = [...counts.entries()].filter(([, n]) => n >= 2).map(([id]) => id);
+        if (mutualIds.length === 0) {
+          setMutualServers([]);
+          return;
+        }
+        const { data: comms } = await sb.from('communities').select('id,name').in('id', mutualIds);
+        if (alive) setMutualServers((comms ?? []) as { id: string; name: string }[]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sb, user, profile.id, isOther]);
+
+  const saveNote = async () => {
+    if (!user) return;
+    const text = note.trim().slice(0, 500);
+    if (!text) {
+      await sb.from('profile_notes').delete().eq('author_id', user.id).eq('target_id', profile.id);
+    } else {
+      await sb.from('profile_notes').upsert({ author_id: user.id, target_id: profile.id, note: text, updated_at: new Date().toISOString() });
+    }
+    setNoteSaved(true);
+    window.setTimeout(() => setNoteSaved(false), 2000);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label={`Profil de ${profile.display_name || profile.username}`}>
       <button aria-label="Fermer" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-xl bg-surface shadow-2xl sm:max-w-sm sm:rounded-xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
-        {/* Bannière sobre (image si présente, sinon couleur unie, sinon fond neutre) + avatar */}
+        {/* Bannière : image, sinon thème de profil (c1), sinon couleur, sinon neutre */}
         <div
           className="relative h-28 overflow-hidden bg-surface2"
-          style={profile.banner_color && !profile.banner_url ? { backgroundColor: profile.banner_color } : undefined}
+          style={
+            profile.banner_url
+              ? undefined
+              : theme
+                ? { backgroundColor: theme.c1 }
+                : profile.banner_color
+                  ? { backgroundColor: profile.banner_color }
+                  : undefined
+          }
         >
           {profile.banner_url && <img src={profile.banner_url} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+          {theme && <div className="absolute inset-x-0 bottom-0 h-1.5" style={{ backgroundColor: theme.c2 }} />}
           <button
             onClick={onClose}
             className="absolute right-3 top-3 rounded-full bg-black/40 p-2 text-white hover:bg-black/60"
@@ -102,7 +168,19 @@ export default function ProfileCard({ profile, friendship: friendshipProp, statu
             <span>{profile.display_name || profile.username}</span>
             {profile.is_verified && <VerifiedBadge size={18} />}
           </h2>
-          <p className="text-sm text-muted">@{profile.username}</p>
+          <p className="text-sm text-muted">
+            @{profile.username}
+            {profile.pronouns ? <span> · {profile.pronouns}</span> : null}
+          </p>
+          {devMode && (
+            <button
+              onClick={() => navigator.clipboard?.writeText(profile.id).catch(() => {})}
+              className="mt-1 flex items-center gap-1 text-xs text-muted hover:text-ink"
+              title="Copier l'identifiant (mode développeur)"
+            >
+              <Copy size={12} /> ID : {profile.id.slice(0, 8)}…
+            </button>
+          )}
           {profile.is_creator && (
             <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-primary">
               Créateur de Kora
@@ -169,6 +247,38 @@ export default function ProfileCard({ profile, friendship: friendshipProp, statu
                 <div>
                   <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Ami(e) depuis le</p>
                   <p className="text-sm">{formatDate(friendship.created_at)}</p>
+                </div>
+              )}
+              {mutualServers.length > 0 && (
+                <div>
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">
+                    Serveurs en commun ({mutualServers.length})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mutualServers.slice(0, 10).map((s) => (
+                      <span key={s.id} className="rounded-full bg-surface2 px-2.5 py-1 text-xs font-medium">
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isOther && noteLoaded && (
+                <div>
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">
+                    Note privée (visible uniquement par toi)
+                  </p>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                    maxLength={500}
+                    placeholder="Clique pour ajouter une note…"
+                    className="w-full rounded-xl border border-line bg-surface2 px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                  <button onClick={saveNote} className="mt-1 rounded-lg bg-surface2 px-3 py-1.5 text-xs font-bold hover:bg-line">
+                    {noteSaved ? 'Enregistrée' : 'Enregistrer la note'}
+                  </button>
                 </div>
               )}
               {SOCIAL_LINKS.some((l) => links[l.key]) && (

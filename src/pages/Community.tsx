@@ -10,7 +10,9 @@ import ModerationPanel from '../components/ModerationPanel';
 import InviteModal from '../components/InviteModal';
 import type { ChannelOutletContext } from './ChannelRoute';
 import { normalizeChannelName } from '../lib/community';
-import { ChevronDown, ChevronRight, ChevronUp, Link2, LogOut, Pencil, Plus, Settings, Shield, Trash2, Users, Volume2, X } from 'lucide-react';
+import { isDevMode, markCommunityRead, useServerColors } from '../lib/devMode';
+import { validHex } from '../lib/frames';
+import { CheckCheck, ChevronDown, ChevronRight, ChevronUp, Clock, Copy, Link2, LogOut, Pencil, Plus, Settings, Shield, Trash2, Users, Volume2, X } from 'lucide-react';
 import type {
   Channel,
   ChannelCategory,
@@ -31,6 +33,10 @@ export default function Community() {
   const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const [community, setCommunity] = useState<Community | null>(null);
+  const [devMode, setDevMode] = useState(isDevMode());
+  const serverColorsOn = useServerColors();
+  const serverAccent =
+    serverColorsOn && community?.accent_color && validHex(community.accent_color) ? community.accent_color : null;
   const [myRole, setMyRole] = useState<CommunityRole | null>(null);
   const [categories, setCategories] = useState<ChannelCategory[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -211,6 +217,50 @@ export default function Community() {
     });
   }, []);
 
+  // Marquer toute la communauté comme lue (menu + Maj+Échap) : met à jour
+  // les visites de tous ses salons, ici et dans les autres vues (rail).
+  const markAllRead = useCallback(() => {
+    markCommunityRead(channels.map((c) => c.id));
+    setChannelVisits((prev) => {
+      const now = new Date().toISOString();
+      const next = { ...prev };
+      for (const c of channels) next[c.id] = now;
+      return next;
+    });
+    flash('Communauté marquée comme lue.');
+  }, [communityId, channels]);
+
+  // Relecture des visites quand un autre composant (rail) les modifie.
+  useEffect(() => {
+    const onChange = () => {
+      try {
+        setChannelVisits(JSON.parse(localStorage.getItem('kora:channel-visits') ?? '{}') as Record<string, string>);
+      } catch {
+        /* stockage indisponible */
+      }
+    };
+    window.addEventListener('kora:channel-visits-changed', onChange);
+    const onDev = () => setDevMode(isDevMode());
+    window.addEventListener('kora:dev-mode-changed', onDev);
+    return () => {
+      window.removeEventListener('kora:channel-visits-changed', onChange);
+      window.removeEventListener('kora:dev-mode-changed', onDev);
+    };
+  }, []);
+
+  // Maj+Échap : marquer la communauté affichée comme lue.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'Escape' && communityId) {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        markAllRead();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [communityId, markAllRead]);
+
   useEffect(() => {
     if (channels.length === 0) return;
     const ids = channels.map((c) => c.id);
@@ -359,7 +409,11 @@ export default function Community() {
     try {
       const { error } = await sb
         .from('channels')
-        .update({ name: cleanName, topic: editingChannel.topic.trim().slice(0, 200) })
+        .update({
+          name: cleanName,
+          topic: editingChannel.topic.trim().slice(0, 200),
+          slowmode_seconds: Math.max(0, Math.min(21600, editingChannel.slowmode_seconds ?? 0)),
+        })
         .eq('id', editingChannel.id);
       if (error) throw error;
       setEditingChannel(null);
@@ -490,52 +544,72 @@ export default function Community() {
             markChannelVisited(ch.id);
             navigate(`/app/c/${communityId}/${ch.id}`);
           }}
+          style={active && serverAccent ? { backgroundColor: `${serverAccent}26` } : undefined}
           className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-[15px] ${
             active ? 'bg-surface2 font-semibold text-ink' : 'text-muted hover:bg-surface2/60 hover:text-ink'
           }`}
         >
           <span className="shrink-0 text-base text-muted">{isVoice ? <Volume2 size={16} /> : '#'}</span>
           <span className="min-w-0 flex-1 truncate">{ch.name}</span>
+          {(ch.slowmode_seconds ?? 0) > 0 && (
+            <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted" title={`Slowmode : ${ch.slowmode_seconds} s entre deux messages`}>
+              <Clock size={11} /> {ch.slowmode_seconds}s
+            </span>
+          )}
           {hasMention ? (
             <span className="shrink-0 rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">@NOUVEAU</span>
           ) : hasUnread ? (
             <span className="mr-1 h-2 w-2 shrink-0 rounded-full bg-danger" title="Messages non lus" />
           ) : null}
         </button>
-        {isAdmin && (
+        {(isAdmin || devMode) && (
           <div className="hidden shrink-0 items-center group-hover:flex">
-            <button
-              onClick={() => moveChannel(ch, -1)}
-              className="rounded px-1 text-muted hover:text-ink"
-              title="Monter"
-              aria-label="Monter le salon"
-            >
-              <ChevronUp size={14} />
-            </button>
-            <button
-              onClick={() => moveChannel(ch, 1)}
-              className="rounded px-1 text-muted hover:text-ink"
-              title="Descendre"
-              aria-label="Descendre le salon"
-            >
-              <ChevronDown size={14} />
-            </button>
-            <button
-              onClick={() => setEditingChannel({ ...ch })}
-              className="rounded px-1 text-muted hover:text-ink"
-              title="Renommer"
-              aria-label="Renommer le salon"
-            >
-              <Pencil size={14} />
-            </button>
-            <button
-              onClick={() => deleteChannel(ch)}
-              className="rounded px-1 text-muted hover:text-danger"
-              title="Supprimer"
-              aria-label="Supprimer le salon"
-            >
-              <X size={14} />
-            </button>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => moveChannel(ch, -1)}
+                  className="rounded px-1 text-muted hover:text-ink"
+                  title="Monter"
+                  aria-label="Monter le salon"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  onClick={() => moveChannel(ch, 1)}
+                  className="rounded px-1 text-muted hover:text-ink"
+                  title="Descendre"
+                  aria-label="Descendre le salon"
+                >
+                  <ChevronDown size={14} />
+                </button>
+                <button
+                  onClick={() => setEditingChannel({ ...ch })}
+                  className="rounded px-1 text-muted hover:text-ink"
+                  title="Renommer"
+                  aria-label="Renommer le salon"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={() => deleteChannel(ch)}
+                  className="rounded px-1 text-muted hover:text-danger"
+                  title="Supprimer"
+                  aria-label="Supprimer le salon"
+                >
+                  <X size={14} />
+                </button>
+              </>
+            )}
+            {devMode && (
+              <button
+                onClick={() => void navigator.clipboard?.writeText(ch.id)}
+                className="rounded px-1 text-muted hover:text-ink"
+                title="Copier l’ID du salon"
+                aria-label="Copier l’ID du salon"
+              >
+                <Copy size={14} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -552,6 +626,7 @@ export default function Community() {
         aria-label="Salons de la communauté"
       >
         <div className="relative flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
+          {serverAccent && <span className="absolute inset-x-0 top-0 h-[3px]" style={{ backgroundColor: serverAccent }} aria-hidden />}
           <button
             onClick={() => navigate('/app/communautes')}
             className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:hidden"
@@ -562,8 +637,13 @@ export default function Community() {
           {community.icon_url ? (
             <img src={community.icon_url} alt={community.name} className="h-8 w-8 shrink-0 rounded-lg object-cover" />
           ) : (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-base font-extrabold text-primary">
-              {community.name.trim()[0]?.toUpperCase()}
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base font-extrabold"
+              style={serverAccent ? { backgroundColor: `${serverAccent}26`, color: serverAccent } : undefined}
+            >
+              <span className={serverAccent ? '' : 'bg-primary/20 text-primary flex h-full w-full items-center justify-center rounded-lg'}>
+                {community.name.trim()[0]?.toUpperCase()}
+              </span>
             </div>
           )}
           <button
@@ -572,7 +652,17 @@ export default function Community() {
             aria-label="Menu de la communauté"
           >
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px] font-extrabold">{community.name}</span>
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-[15px] font-extrabold">{community.name}</span>
+                {community.tag && (
+                  <span
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                    style={serverAccent ? { backgroundColor: `${serverAccent}26`, color: serverAccent } : undefined}
+                  >
+                    {community.tag}
+                  </span>
+                )}
+              </span>
               <span className="block truncate text-[11px] text-muted">{members.length} membre{members.length > 1 ? 's' : ''} • Communauté</span>
             </span>
             <span className="shrink-0 text-muted">{showMenu ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
@@ -629,6 +719,12 @@ export default function Community() {
                     <span><Shield size={16} /></span> Modération
                   </button>
                 )}
+                <button
+                  onClick={() => { setShowMenu(false); markAllRead(); }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
+                >
+                  <span><CheckCheck size={16} /></span> Marquer comme lu <span className="ml-auto text-xs text-muted">Maj+Échap</span>
+                </button>
                 <div className="h-px bg-line" />
                 {myRole === 'proprietaire' ? (
                   <button
@@ -668,6 +764,13 @@ export default function Community() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto py-2">
+          {/* Bannière de la communauté : en haut de la liste, elle se replie
+              naturellement au défilement (elle fait partie de la zone scrollable). */}
+          {community.banner_url && (
+            <div className="mx-2 mb-2 overflow-hidden rounded-xl">
+              <img src={community.banner_url} alt="" className="h-24 w-full object-cover" />
+            </div>
+          )}
           {categories.map((cat) => {
             const collapsed = collapsedCats.includes(cat.id);
             const needle = channelSearch.trim().toLowerCase();
@@ -1009,6 +1112,26 @@ export default function Community() {
                 maxLength={200}
                 className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Slowmode (secondes entre deux messages)</label>
+              <input
+                type="number"
+                min={0}
+                max={21600}
+                value={editingChannel.slowmode_seconds ?? 0}
+                onChange={(e) =>
+                  setEditingChannel({
+                    ...editingChannel,
+                    slowmode_seconds: Math.max(0, Math.min(21600, Number(e.target.value) || 0)),
+                  })
+                }
+                className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+              />
+              <p className="mt-1 text-xs text-muted">
+                0 = désactivé. Appliqué côté serveur : un message trop rapide est refusé (max 6 h). Le badge « Ns »
+                apparaît dans la liste des salons.
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setEditingChannel(null)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2">

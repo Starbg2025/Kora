@@ -10,10 +10,12 @@ import MessageToolbar from '../components/MessageToolbar';
 import EmojiPicker from '../components/EmojiPicker';
 import VoiceRecorder from '../components/VoiceRecorder';
 import MessageActionSheet from '../components/MessageActionSheet';
+import TranslateBlock from '../components/TranslateBlock';
 import ReportModal from '../components/ReportModal';
 import ProfileCard from '../components/ProfileCard';
 import { formatDay, formatFull, formatTime } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
+import { isDevMode } from '../lib/devMode';
 import { openDirectDM } from '../lib/dm';
 import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessagePoll, type MessagePollVote, type MessageReaction, type Profile } from '../lib/types';
 import MessageContent from './MessageContent';
@@ -177,6 +179,14 @@ export default function Conversation() {
   const [panelTab, setPanelTab] = useState<'membres' | 'medias' | 'epingles'>('membres');
   const [showMenu, setShowMenu] = useState(false);
   const [sheetMsg, setSheetMsg] = useState<Message | null>(null);
+  const [translateId, setTranslateId] = useState<string | null>(null);
+  const [devMode, setDevMode] = useState(isDevMode());
+
+  useEffect(() => {
+    const onDev = () => setDevMode(isDevMode());
+    window.addEventListener('kora:dev-mode-changed', onDev);
+    return () => window.removeEventListener('kora:dev-mode-changed', onDev);
+  }, []);
   const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
   const [reportTarget, setReportTarget] = useState<Message | null>(null);
   const [showProfile, setShowProfile] = useState(false);
@@ -1304,6 +1314,9 @@ export default function Conversation() {
                         <>
                           {m.content && <MessageContent content={m.content} />}
                           {m.attachment_path && <Attachment path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
+                          {translateId === m.id && m.content && (
+                            <TranslateBlock content={m.content} onClose={() => setTranslateId(null)} />
+                          )}
                           {polls[m.id] && (
                             <PollCard
                               poll={polls[m.id]}
@@ -1688,6 +1701,8 @@ export default function Conversation() {
           onCopyLink={() => copyMessageLink(sheetMsg)}
           onDelete={() => setDeleteTarget(sheetMsg)}
           onReport={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}
+          onTranslate={() => { setTranslateId(sheetMsg.id); setSheetMsg(null); }}
+          onCopyId={devMode ? () => { void navigator.clipboard?.writeText(sheetMsg.id); setSheetMsg(null); } : undefined}
           onClose={() => setSheetMsg(null)}
         />
       )}

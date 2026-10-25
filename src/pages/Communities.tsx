@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useCommunities } from '../hooks/useCommunities';
 import CreateCommunityModal from '../components/CreateCommunityModal';
 import EmptyState from '../components/EmptyState';
-import { ROLE_LABELS } from '../lib/types';
+import Modal from '../components/Modal';
+import { ROLE_LABELS, type ServerFolder, type ServerFolderItem } from '../lib/types';
 
 function CommunityIcon({ name, iconUrl, size = 56 }: { name: string; iconUrl: string | null; size?: number }) {
   if (iconUrl) {
@@ -21,9 +23,86 @@ function CommunityIcon({ name, iconUrl, size = 56 }: { name: string; iconUrl: st
 
 /** Mes communautés : liste, création, accès à la découverte. */
 export default function Communities() {
+  const { sb, user } = useAuth();
   const { communities, loading, reload } = useCommunities();
   const [showCreate, setShowCreate] = useState(false);
+  const [folders, setFolders] = useState<ServerFolder[]>([]);
+  const [folderItems, setFolderItems] = useState<ServerFolderItem[]>([]);
+  const [moveTarget, setMoveTarget] = useState<{ id: string; name: string } | null>(null);
+  const [folderEditor, setFolderEditor] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const navigate = useNavigate();
+  const me = user?.id ?? '';
+
+  const loadFolders = async () => {
+    if (!me) return;
+    try {
+      const [{ data: f }, { data: items }] = await Promise.all([
+        sb.from('server_folders').select('*').eq('owner_id', me).order('position', { ascending: true }),
+        sb.from('server_folder_items').select('*').eq('owner_id', me).order('position', { ascending: true }),
+      ]);
+      setFolders((f ?? []) as ServerFolder[]);
+      setFolderItems((items ?? []) as ServerFolderItem[]);
+    } catch {
+      setFolders([]);
+      setFolderItems([]);
+    }
+  };
+
+  useEffect(() => {
+    loadFolders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
+  const folderOf = (communityId: string) => folderItems.find((i) => i.community_id === communityId)?.folder_id ?? null;
+  const moveCommunity = async (communityId: string, folderId: string | null) => {
+    await sb.from('server_folder_items').delete().eq('owner_id', me).eq('community_id', communityId);
+    if (folderId) {
+      const maxPos = folderItems.filter((i) => i.folder_id === folderId).reduce((m, i) => Math.max(m, i.position), -1);
+      await sb.from('server_folder_items').insert({ owner_id: me, folder_id: folderId, community_id: communityId, position: maxPos + 1 });
+    }
+    setMoveTarget(null);
+    await loadFolders();
+  };
+
+  const createFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newFolderName.trim().slice(0, 40);
+    if (!name) return;
+    await sb.from('server_folders').insert({ owner_id: me, name, position: folders.length });
+    setNewFolderName('');
+    setFolderEditor(false);
+    await loadFolders();
+  };
+
+  const row = (c: (typeof communities)[number]) => (
+    <li key={c.id} className="flex items-center gap-2">
+      <button
+        onClick={() => navigate(`/app/c/${c.id}`)}
+        className="flex min-w-0 flex-1 items-center gap-4 rounded-2xl bg-surface p-4 text-left hover:bg-surface2"
+      >
+        <CommunityIcon name={c.name} iconUrl={c.icon_url} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-bold">{c.name}</span>
+          {c.description && <span className="block truncate text-sm text-muted">{c.description}</span>}
+          <span className="mt-1 inline-block rounded-full bg-surface2 px-2 py-0.5 text-xs font-semibold text-muted">
+            {ROLE_LABELS[c.role]}
+          </span>
+        </span>
+        <span className="text-muted">›</span>
+      </button>
+      <button
+        onClick={() => setMoveTarget({ id: c.id, name: c.name })}
+        className="shrink-0 rounded-xl bg-surface px-3 py-3 text-lg text-muted hover:bg-surface2"
+        aria-label={`Déplacer ${c.name} vers un dossier`}
+        title="Déplacer vers un dossier"
+      >
+        ⋯
+      </button>
+    </li>
+  );
+
+  const unfiled = communities.filter((c) => !folderOf(c.id));
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-6">
@@ -36,6 +115,12 @@ export default function Communities() {
           >
             Découvrir
           </Link>
+          <button
+            onClick={() => setFolderEditor(true)}
+            className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+          >
+            Nouveau dossier
+          </button>
           <button
             onClick={() => setShowCreate(true)}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90"
@@ -57,26 +142,24 @@ export default function Communities() {
           />
         </div>
       ) : (
-        <ul className="mt-4 space-y-2 overflow-y-auto pb-4">
-          {communities.map((c) => (
-            <li key={c.id}>
-              <button
-                onClick={() => navigate(`/app/c/${c.id}`)}
-                className="flex w-full items-center gap-4 rounded-2xl bg-surface p-4 text-left hover:bg-surface2"
-              >
-                <CommunityIcon name={c.name} iconUrl={c.icon_url} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{c.name}</span>
-                  {c.description && <span className="block truncate text-sm text-muted">{c.description}</span>}
-                  <span className="mt-1 inline-block rounded-full bg-surface2 px-2 py-0.5 text-xs font-semibold text-muted">
-                    {ROLE_LABELS[c.role]}
-                  </span>
-                </span>
-                <span className="text-muted">›</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-4 space-y-6 overflow-y-auto pb-4">
+          <ul className="space-y-2">{unfiled.map(row)}</ul>
+          {folders.map((f) => {
+            const items = folderItems
+              .filter((i) => i.folder_id === f.id)
+              .map((i) => communities.find((c) => c.id === i.community_id))
+              .filter((c) => !!c);
+            if (items.length === 0) return null;
+            return (
+              <section key={f.id}>
+                <h2 className="mb-2 px-1 text-sm font-bold uppercase tracking-wide text-muted">
+                  {f.name} · {items.length}
+                </h2>
+                <ul className="space-y-2">{items.map(row)}</ul>
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {showCreate && (
@@ -87,6 +170,50 @@ export default function Communities() {
             navigate(`/app/c/${id}`);
           }}
         />
+      )}
+
+      {moveTarget && (
+        <Modal title={`Déplacer « ${moveTarget.name} »`} onClose={() => setMoveTarget(null)}>
+          <div className="space-y-2">
+            <button
+              onClick={() => moveCommunity(moveTarget.id, null)}
+              className="w-full rounded-xl bg-surface2 px-4 py-2.5 text-left text-sm font-semibold hover:bg-line"
+            >
+              Aucun dossier (hors dossier)
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => moveCommunity(moveTarget.id, f.id)}
+                className="w-full rounded-xl bg-surface2 px-4 py-2.5 text-left text-sm font-semibold hover:bg-line"
+              >
+                {f.name}
+                {folderOf(moveTarget.id) === f.id && <span className="ml-2 text-xs text-primary">· déjà ici</span>}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {folderEditor && (
+        <Modal title="Nouveau dossier" onClose={() => setFolderEditor(false)}>
+          <form onSubmit={createFolder} className="space-y-4">
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Ex. : Jeux, Copains, Travail"
+              maxLength={40}
+              className="w-full rounded-xl border border-line bg-surface2 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setFolderEditor(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted hover:bg-surface2">
+                Annuler
+              </button>
+              <button className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:opacity-90">Créer</button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
+import CommunityIdentity from './CommunityIdentity';
+import CommunityOnboarding from './CommunityOnboarding';
+import CommunityWebhooks from './CommunityWebhooks';
+import CommunityBots from './CommunityBots';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { invalidateCustomEmojis } from '../lib/emojis';
@@ -370,6 +374,15 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
           >
             {busy ? 'Enregistrement…' : 'Enregistrer'}
           </button>
+
+          {canManageEmojis && (
+            <>
+              <CommunityIdentity community={community} flash={flash} onChanged={onChanged} />
+              <CommunityOnboarding community={community} flash={flash} />
+              <CommunityWebhooks community={community} flash={flash} />
+              <CommunityBots community={community} flash={flash} />
+            </>
+          )}
 
           {onOpenModeration && (
             <button

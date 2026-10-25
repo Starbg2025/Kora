@@ -22,6 +22,12 @@ export interface Profile {
   privacy_dms?: 'friends' | 'nobody';
   /** Visibilité du statut : 'everyone' | 'friends' | 'nobody'. */
   privacy_status?: 'everyone' | 'friends' | 'nobody';
+  /** Décoration d'avatar Kora (20261027) : 'none' | 'anneau' | 'double' | 'epais'. */
+  avatar_frame?: string | null;
+  /** Thème de profil (20261027) : clé de préréglage ou 'custom:#hex1:#hex2'. */
+  profile_theme?: string | null;
+  /** Pronoms (optionnel, 20261027). */
+  pronouns?: string | null;
 }
 
 export interface UserSettings {
@@ -38,6 +44,8 @@ export interface UserSettings {
   notif_friend_requests: boolean;
   notif_invites: boolean;
   notif_calls: boolean;
+  /** Utiliser la couleur propre à chaque serveur (20261027, défaut vrai). */
+  use_server_colors?: boolean;
 }
 
 export type NotificationType = 'message' | 'mention' | 'demande_ami' | 'invitation' | 'appel' | 'communaute';
@@ -150,6 +158,16 @@ export interface Community {
   invite_code: string;
   is_public: boolean;
   created_at: string;
+  /** Couleur d'accent propre au serveur (20261027, hex ou null). */
+  accent_color?: string | null;
+  /** Image de bannière (20261027). */
+  banner_url?: string | null;
+  /** Tag court affiché près des pseudos (20261027, ≤ 6 caractères). */
+  tag?: string | null;
+  /** Onboarding (20261027). */
+  onboarding_enabled?: boolean;
+  onboarding_rules?: string;
+  onboarding_start_channel_id?: string | null;
 }
 
 export interface CommunityMember {
@@ -177,6 +195,8 @@ export interface Channel {
   type: 'text' | 'voice';
   position: number;
   created_at: string;
+  /** Délai anti-spam par auteur, en secondes, appliqué côté serveur (20261027). */
+  slowmode_seconds?: number;
 }
 
 export interface CommunityMessage {
@@ -189,6 +209,10 @@ export interface CommunityMessage {
   edited_at: string | null;
   reply_to: string | null;
   created_at: string;
+  /** Message publié via un webhook (20261027). */
+  via_webhook?: boolean;
+  /** Nom du bot auteur, le cas échéant (20261027). */
+  bot_name?: string | null;
 }
 
 export interface CommunityMessageReaction {
@@ -352,5 +376,55 @@ export interface CustomEmoji {
   image_path: string;
   animated: boolean;
   created_by: string;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Façon Yapin' (20261027) — concepts repris, identité Kora
+// ---------------------------------------------------------------------------
+
+export interface ServerFolder {
+  id: string;
+  user_id: string;
+  name: string;
+  position: number;
+  collapsed: boolean;
+  created_at: string;
+}
+
+export interface ServerFolderItem {
+  folder_id: string;
+  community_id: string;
+  position: number;
+}
+
+export interface OnboardingQuestion {
+  id: string;
+  community_id: string;
+  question: string;
+  options: { label: string; role: 'membre' | 'moderateur' }[];
+  position: number;
+  created_at: string;
+}
+
+export interface CommunityWebhook {
+  id: string;
+  channel_id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface Bot {
+  id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface BotServer {
+  bot_id: string;
+  community_id: string;
+  added_by: string;
   created_at: string;
 }

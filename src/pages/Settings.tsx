@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
-import { Bell, Info, Lock, LogOut, Palette, Shield, SquarePen, User, type LucideIcon } from 'lucide-react';
+import { Bell, Code2, Info, Keyboard, Lock, LogOut, Palette, Shield, SquarePen, User, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { useTheme, ACCENT_COLORS, type DensityChoice, type TextSizeChoice, type ThemeChoice } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import { isValidUsername } from '../lib/format';
 import { normalizeSocialLink } from '../lib/privacy';
+import { AVATAR_FRAMES, PROFILE_THEMES, parseProfileTheme } from '../lib/frames';
+import { isDevMode, setDevMode, useServerColors, setUseServerColors } from '../lib/devMode';
 import { STATUS_LABELS, type DM, type PresenceStatus, type UserSettings } from '../lib/types';
 
-type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'apropos';
+type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'raccourcis' | 'avance' | 'apropos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'compte', label: 'Compte' },
@@ -19,6 +21,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'confidentialite', label: 'Confidentialité' },
   { id: 'securite', label: 'Sécurité' },
+  { id: 'raccourcis', label: 'Raccourcis' },
+  { id: 'avance', label: 'Avancé' },
   { id: 'apropos', label: 'À propos' },
 ];
 
@@ -29,6 +33,8 @@ const TAB_ICONS: Record<TabId, LucideIcon> = {
   notifications: Bell,
   confidentialite: Lock,
   securite: Shield,
+  raccourcis: Keyboard,
+  avance: Code2,
   apropos: Info,
 };
 
@@ -49,6 +55,10 @@ function AccountTab() {
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deletePw, setDeletePw] = useState('');
+  const [standing, setStanding] = useState<string | null>(null);
+  const [standingDetail, setStandingDetail] = useState('');
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNotice, setExportNotice] = useState('');
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => {
@@ -58,6 +68,84 @@ function AccountTab() {
       setSessionInfo(`Appareil actuel — compte créé le ${created}.`);
     });
   }, [sb]);
+
+  // État réel du compte : sanctions actives issues des tables de modération.
+  // Si ces tables n'existent pas encore (migration en attente), on le dit.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [bans, timeouts] = await Promise.all([
+          sb.from('server_bans').select('community_id, reason, expires_at').eq('user_id', user.id),
+          sb.from('server_timeouts').select('community_id, reason, expires_at').eq('user_id', user.id).gt('expires_at', new Date().toISOString()),
+        ]);
+        if (!alive) return;
+        if (bans.error || timeouts.error) {
+          setStanding('Modération non activée');
+          setStandingDetail('Les tables de modération ne sont pas encore installées (migration SQL en attente) : aucune sanction ne peut être affichée.');
+          return;
+        }
+        const activeBans = (bans.data ?? []).filter((b: { expires_at: string | null }) => !b.expires_at || new Date(b.expires_at).getTime() > Date.now());
+        const activeTimeouts = timeouts.data ?? [];
+        if (activeBans.length === 0 && activeTimeouts.length === 0) {
+          setStanding('En règle');
+          setStandingDetail('Aucun bannissement ni timeout actif sur tes communautés.');
+        } else {
+          setStanding('Sanctions actives');
+          const parts: string[] = [];
+          if (activeBans.length > 0) parts.push(`${activeBans.length} bannissement(s)`);
+          if (activeTimeouts.length > 0) parts.push(`${activeTimeouts.length} timeout(s) en cours`);
+          setStandingDetail(parts.join(' · ') + '. Détail visible dans le panneau Modération de chaque communauté.');
+        }
+      } catch {
+        if (alive) {
+          setStanding('Modération non activée');
+          setStandingDetail('Impossible de lire les sanctions pour le moment.');
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [sb, user]);
+
+  // Export JSON : uniquement les données que l'utilisateur peut réellement lire.
+  const exportData = async () => {
+    if (!user) return;
+    setExportBusy(true);
+    setExportNotice('');
+    try {
+      const [profileRes, friendsRes, commsRes, dmMsgsRes, chMsgsRes] = await Promise.all([
+        sb.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+        sb.from('friendships').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),
+        sb.from('community_members').select('community_id, role, joined_at').eq('user_id', user.id),
+        sb.from('messages').select('id, dm_id, content, created_at').eq('author_id', user.id).order('created_at', { ascending: false }).limit(5000),
+        sb.from('community_messages').select('id, channel_id, content, created_at').eq('author_id', user.id).order('created_at', { ascending: false }).limit(5000),
+      ]);
+      const payload = {
+        exporte_le: new Date().toISOString(),
+        profil: profileRes.data ?? null,
+        amities: friendsRes.data ?? [],
+        communautes: commsRes.data ?? [],
+        messages_prives_propres: dmMsgsRes.data ?? [],
+        messages_salons_propres: chMsgsRes.data ?? [],
+        limite: '5000 messages les plus récents par catégorie (pièces jointes non incluses, fichiers récupérables depuis l’app).',
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kora-donnees-${user.id.slice(0, 8)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportNotice('Export téléchargé.');
+    } catch (err) {
+      setExportNotice(err instanceof Error ? err.message : 'Export impossible.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const changeEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,6 +246,27 @@ function AccountTab() {
           Pour des raisons de sécurité, seul l’appareil actuel est affiché ici. La déconnexion à distance des autres appareils n’est pas encore disponible.
         </p>
       </div>
+      <div>
+        <h3 className="mb-1 font-bold">État du compte</h3>
+        {standing ? (
+          <>
+            <p className="text-sm font-semibold">{standing}</p>
+            <p className="mt-1 text-sm text-muted">{standingDetail}</p>
+          </>
+        ) : (
+          <p className="text-sm text-muted">Chargement…</p>
+        )}
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Mes données</h3>
+        <p className="mb-3 text-sm text-muted">
+          Télécharge tes données Kora au format JSON : profil, amitiés, communautés et tes 5000 messages les plus récents par catégorie.
+        </p>
+        <button onClick={exportData} disabled={exportBusy} className="rounded-xl bg-surface2 px-4 py-2 text-sm font-medium hover:bg-line disabled:opacity-50">
+          {exportBusy ? 'Préparation…' : 'Télécharger mes données (JSON)'}
+        </button>
+        {exportNotice && <p className="mt-2 text-sm text-muted">{exportNotice}</p>}
+      </div>
       <div className="rounded-2xl border border-danger/30 p-4">
         <h3 className="mb-1 font-bold text-danger">Zone dangereuse</h3>
         {!confirmDisable && !confirmDelete ? (
@@ -241,6 +350,16 @@ function ProfileTab() {
   const [bannerColor, setBannerColor] = useState(profile?.banner_color ?? '');
   const [bannerUrl, setBannerUrl] = useState<string | null>(profile?.banner_url ?? null);
   const [bannerUploading, setBannerUploading] = useState(false);
+  const [avatarFrame, setAvatarFrame] = useState(profile?.avatar_frame ?? 'none');
+  const [themePreset, setThemePreset] = useState<string>(() => {
+    const raw = profile?.profile_theme ?? '';
+    if (!raw) return '';
+    if (raw.startsWith('custom:')) return 'custom';
+    return raw;
+  });
+  const [themeC1, setThemeC1] = useState(() => parseProfileTheme(profile?.profile_theme)?.c1 ?? '#FF6A00');
+  const [themeC2, setThemeC2] = useState(() => parseProfileTheme(profile?.profile_theme)?.c2 ?? '#1C1C2B');
+  const [pronouns, setPronouns] = useState(profile?.pronouns ?? '');
   const [socialWebsite, setSocialWebsite] = useState((profile?.social_links as Record<string, string> | undefined)?.website ?? '');
   const [socialX, setSocialX] = useState((profile?.social_links as Record<string, string> | undefined)?.x ?? '');
   const [socialYoutube, setSocialYoutube] = useState((profile?.social_links as Record<string, string> | undefined)?.youtube ?? '');
@@ -256,6 +375,15 @@ function ProfileTab() {
     setCustomStatus(profile?.custom_status ?? '');
     setBannerColor(profile?.banner_color ?? '');
     setBannerUrl(profile?.banner_url ?? null);
+    setAvatarFrame(profile?.avatar_frame ?? 'none');
+    const rawTheme = profile?.profile_theme ?? '';
+    setThemePreset(!rawTheme ? '' : rawTheme.startsWith('custom:') ? 'custom' : rawTheme);
+    const parsed = parseProfileTheme(rawTheme);
+    if (parsed) {
+      setThemeC1(parsed.c1);
+      setThemeC2(parsed.c2);
+    }
+    setPronouns(profile?.pronouns ?? '');
     const links = (profile?.social_links ?? {}) as Record<string, string>;
     setSocialWebsite(links.website ?? '');
     setSocialX(links.x ?? '');
@@ -353,35 +481,36 @@ function ProfileTab() {
       if (website) links.website = website;
       if (x) links.x = x;
       if (youtube) links.youtube = youtube;
+      const profileTheme = themePreset === 'custom' ? `custom:${themeC1}:${themeC2}` : themePreset === '' ? null : themePreset;
+      const fullPatch = {
+        username: u,
+        display_name: displayName.trim(),
+        bio: bio.trim().slice(0, 300),
+        status,
+        custom_status: customStatus.trim().slice(0, 100),
+        custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
+        banner_color: bannerColor || null,
+        banner_url: bannerUrl,
+        social_links: links,
+        avatar_frame: avatarFrame,
+        profile_theme: profileTheme,
+        pronouns: pronouns.trim().slice(0, 30),
+      };
       try {
-        await updateProfile({
-          username: u,
-          display_name: displayName.trim(),
-          bio: bio.trim().slice(0, 190),
-          status,
-          custom_status: customStatus.trim().slice(0, 100),
-          custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
-          banner_color: bannerColor || null,
-          banner_url: bannerUrl,
-          social_links: links,
-        });
+        await updateProfile(fullPatch);
         setNotice('Profil enregistré.');
       } catch (saveErr) {
-        // Colonnes social_links / banner_url absentes tant que les migrations
-        // 20261026_privacy_social / 20261025_profile_media ne sont pas
-        // exécutées : on enregistre le reste au lieu d'échouer entièrement.
+        // Colonnes absentes tant que les migrations ne sont pas exécutées :
+        // on retire les champs fautifs et on enregistre le reste.
         const msg = saveErr instanceof Error ? saveErr.message : '';
-        if (msg.includes('social_links') || msg.includes('banner_url')) {
-          await updateProfile({
-            username: u,
-            display_name: displayName.trim(),
-            bio: bio.trim().slice(0, 190),
-            status,
-            custom_status: customStatus.trim().slice(0, 100),
-            custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
-            banner_color: bannerColor || null,
-          });
-          setNotice('Profil enregistré, sauf les liens sociaux et la bannière image (migrations SQL en attente — voir À propos).');
+        const missing = ['social_links', 'banner_url', 'avatar_frame', 'profile_theme', 'pronouns'].filter((k) =>
+          msg.includes(k),
+        );
+        if (missing.length > 0) {
+          const reduced = { ...fullPatch } as Record<string, unknown>;
+          for (const k of missing) delete reduced[k];
+          await updateProfile(reduced);
+          setNotice(`Profil enregistré, sauf : ${missing.join(', ')} (migrations SQL en attente — voir À propos).`);
         } else {
           throw saveErr;
         }
@@ -411,17 +540,38 @@ function ProfileTab() {
       </div>
       <p className="-mt-2 text-xs text-muted">PNG, JPG, WebP ou GIF animé (5 Mo max) — les GIF jouent en animé dans le chat, les listes et les profils.</p>
       <div>
+        <span className="mb-2 block text-sm font-medium">Décoration d’avatar</span>
+        <div className="flex flex-wrap gap-2">
+          {AVATAR_FRAMES.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setAvatarFrame(f.id)}
+              className={`rounded-xl border px-4 py-2 text-sm font-medium ${avatarFrame === f.id ? 'border-primary bg-primary/10' : 'border-line'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">Anneaux sobres autour de ton avatar, visibles partout. Créations Kora, gratuites.</p>
+      </div>
+      <div>
         <label htmlFor="p-username" className="mb-1 block text-sm font-medium">Nom d’utilisateur (unique)</label>
         <input id="p-username" value={username} onChange={(e) => setUsername(e.target.value)} className={inputCls} />
+        <p className="mt-1 text-xs text-muted">Après un changement, ton ancien nom reste réservé 7 jours avant de pouvoir être repris par quelqu’un d’autre.</p>
       </div>
       <div>
         <label htmlFor="p-display" className="mb-1 block text-sm font-medium">Nom d’affichage</label>
         <input id="p-display" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={inputCls} maxLength={60} />
       </div>
       <div>
+        <label htmlFor="p-pronouns" className="mb-1 block text-sm font-medium">Pronoms (optionnel)</label>
+        <input id="p-pronouns" value={pronouns} onChange={(e) => setPronouns(e.target.value)} className={inputCls} maxLength={30} placeholder="Ex. : il/lui, elle/elle, iel" />
+      </div>
+      <div>
         <label htmlFor="p-bio" className="mb-1 block text-sm font-medium">Biographie</label>
-        <textarea id="p-bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} maxLength={190} className={inputCls} placeholder="Quelques mots sur toi…" />
-        <p className="mt-1 text-right text-xs text-muted">{bio.length}/190</p>
+        <textarea id="p-bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} maxLength={300} className={inputCls} placeholder="Quelques mots sur toi…" />
+        <p className="mt-1 text-right text-xs text-muted">{bio.length}/300</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
@@ -468,6 +618,57 @@ function ProfileTab() {
         <p className="mt-1 text-xs text-muted">Gratuit, comme tout sur Kora.</p>
       </div>
       <div>
+        <span className="mb-2 block text-sm font-medium">Thème de profil (deux couleurs)</span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setThemePreset('')}
+            className={`rounded-xl border px-4 py-2 text-sm font-medium ${themePreset === '' ? 'border-primary bg-primary/10' : 'border-line'}`}
+          >
+            Aucun
+          </button>
+          {PROFILE_THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setThemePreset(t.id);
+                setThemeC1(t.c1);
+                setThemeC2(t.c2);
+              }}
+              title={t.label}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${themePreset === t.id ? 'border-primary bg-primary/10' : 'border-line'}`}
+            >
+              <span className="flex h-4 w-8 overflow-hidden rounded-full">
+                <span className="h-full flex-1" style={{ backgroundColor: t.c1 }} />
+                <span className="h-full flex-1" style={{ backgroundColor: t.c2 }} />
+              </span>
+              {t.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setThemePreset('custom')}
+            className={`rounded-xl border px-4 py-2 text-sm font-medium ${themePreset === 'custom' ? 'border-primary bg-primary/10' : 'border-line'}`}
+          >
+            Personnalisé
+          </button>
+        </div>
+        {themePreset === 'custom' && (
+          <div className="mt-2 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="color" value={themeC1} onChange={(e) => setThemeC1(e.target.value)} className="h-9 w-12 cursor-pointer rounded-lg border border-line bg-surface2 p-1" />
+              Bannière
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="color" value={themeC2} onChange={(e) => setThemeC2(e.target.value)} className="h-9 w-12 cursor-pointer rounded-lg border border-line bg-surface2 p-1" />
+              Accent
+            </label>
+          </div>
+        )}
+        <p className="mt-1 text-xs text-muted">Appliqué à ta fiche de profil. L’image de bannière, si présente, reste prioritaire.</p>
+      </div>
+      <div>
         <span className="mb-1 block text-sm font-medium">Image de bannière</span>
         {bannerUrl ? (
           <div className="overflow-hidden rounded-2xl border border-line">
@@ -499,18 +700,41 @@ function ProfileTab() {
       <div>
         <span className="mb-2 block text-sm font-medium">Aperçu du profil</span>
         <div className="overflow-hidden rounded-xl border border-line bg-surface">
-          <div className="h-20 overflow-hidden" style={bannerUrl ? undefined : { backgroundColor: bannerColor || undefined }}>
+          <div
+            className="relative h-20 overflow-hidden"
+            style={
+              bannerUrl
+                ? undefined
+                : themePreset !== ''
+                  ? { backgroundColor: themeC1 }
+                  : { backgroundColor: bannerColor || undefined }
+            }
+          >
             {bannerUrl ? (
               <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              !bannerColor && <div className="h-full w-full bg-primary/30" />
+              !bannerColor && themePreset === '' && <div className="h-full w-full bg-primary/30" />
+            )}
+            {themePreset !== '' && !bannerUrl && (
+              <div className="absolute inset-x-0 bottom-0 h-1.5" style={{ backgroundColor: themeC2 }} />
             )}
           </div>
           <div className="flex items-start gap-3 p-4">
-            <Avatar profile={{ ...profile, display_name: displayName || profile?.display_name, username: username || profile?.username }} size={56} />
+            <Avatar
+              profile={{
+                ...profile,
+                display_name: displayName || profile?.display_name,
+                username: username || profile?.username,
+                avatar_frame: avatarFrame,
+              }}
+              size={56}
+            />
             <div className="min-w-0">
               <p className="truncate font-bold">{displayName || username || 'Ton nom'}</p>
-              <p className="truncate text-xs text-muted">@{username || 'tonpseudo'}</p>
+              <p className="truncate text-xs text-muted">
+                @{username || 'tonpseudo'}
+                {pronouns ? <span> · {pronouns}</span> : null}
+              </p>
               {bio && <p className="mt-1 line-clamp-2 text-sm text-muted">{bio}</p>}
               {customStatus && <p className="mt-1 truncate text-xs text-muted">{customStatus}</p>}
             </div>
@@ -535,6 +759,19 @@ function AppearanceTab() {
   const { theme, density, setTheme, setDensity, accentColor, setAccentColor, textSize, setTextSize, reduceMotion, setReduceMotion } = useTheme();
   const { settings, saveSettings } = useAuth();
   const [sqlNotice, setSqlNotice] = useState('');
+  const [serverColors, setServerColors] = useState<boolean>(() =>
+    settings?.use_server_colors ?? useServerColors(),
+  );
+  const toggleServerColors = async () => {
+    const next = !serverColors;
+    setServerColors(next);
+    setUseServerColors(next);
+    try {
+      await saveSettings({ use_server_colors: next });
+    } catch {
+      /* colonne absente (migration en attente) : le réglage reste local à l'appareil */
+    }
+  };
   const themes: { id: ThemeChoice; label: string; desc: string }[] = [
     { id: 'clair', label: 'Clair', desc: 'Fond clair, idéal le jour.' },
     { id: 'sombre', label: 'Sombre', desc: 'Fond sombre, doux pour les yeux le soir.' },
@@ -598,6 +835,23 @@ function AppearanceTab() {
           })}
         </div>
         <p className="mt-2 text-xs text-muted">Appliquée aux boutons, liens et éléments actifs. Aperçu : <span className="font-bold text-primary">ce texte utilise ta couleur</span>.</p>
+      </div>
+      <div>
+        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold">Utiliser les couleurs des serveurs</p>
+            <p className="text-xs text-muted">Quand une communauté définit sa propre couleur, elle colore son en-tête et ses éléments actifs. Sinon, ton accent s’applique partout.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={serverColors}
+            onClick={toggleServerColors}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${serverColors ? 'bg-primary' : 'bg-line'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${serverColors ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </label>
       </div>
       <div>
         <h3 className="mb-3 font-bold">Taille du texte</h3>
@@ -1100,6 +1354,178 @@ function SecurityTab() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Onglet Raccourcis (liste de référence — uniquement les réels)       */
+/* ------------------------------------------------------------------ */
+function ShortcutsTab() {
+  const shortcuts: { keys: string; action: string }[] = [
+    { keys: 'Ctrl + K (ou Cmd + K)', action: 'Ouvrir la recherche globale de messages' },
+    { keys: 'Échap', action: 'Fermer la recherche, une modale ou un menu' },
+    { keys: 'Entrée', action: 'Envoyer le message en cours de rédaction' },
+    { keys: 'Maj + Entrée', action: 'Nouvelle ligne dans le message (sans envoyer)' },
+    { keys: 'Maj + Échap', action: 'Marquer la communauté affichée comme lue' },
+    { keys: 'Double-clic sur un message', action: 'Ajouter / retirer la réaction ❤️' },
+    { keys: 'Appui long (mobile)', action: 'Ouvrir le menu d’actions du message' },
+  ];
+  return (
+    <div className="max-w-xl space-y-4">
+      <p className="text-sm text-muted">
+        Raccourcis réellement disponibles dans Kora. Aucune personnalisation pour le moment : cette liste reflète
+        le comportement réel de l’application, pas une promesse.
+      </p>
+      <div className="space-y-2">
+        {shortcuts.map((s) => (
+          <div key={s.keys} className="flex items-center justify-between gap-4 rounded-xl border border-line px-4 py-3">
+            <span className="text-sm">{s.action}</span>
+            <kbd className="shrink-0 rounded-lg bg-surface2 px-2.5 py-1 font-mono text-xs font-bold">{s.keys}</kbd>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Avancé : mode développeur + bots                             */
+/* ------------------------------------------------------------------ */
+function AdvancedTab() {
+  const { sb, user } = useAuth();
+  const [dev, setDev] = useState(isDevMode());
+  const [bots, setBots] = useState<{ id: string; name: string; created_at: string }[]>([]);
+  const [botName, setBotName] = useState('');
+  const [newToken, setNewToken] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadBots = async () => {
+    if (!user) return;
+    const { data } = await sb.from('bots').select('id, name, created_at').eq('owner_id', user.id).order('created_at', { ascending: false });
+    setBots((data ?? []) as { id: string; name: string; created_at: string }[]);
+  };
+
+  useEffect(() => {
+    loadBots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const toggleDev = () => {
+    const next = !dev;
+    setDev(next);
+    setDevMode(next);
+  };
+
+  const createBot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    const name = botName.trim().slice(0, 32);
+    if (name.length < 2) {
+      setNotice('Nom de bot invalide (2 à 32 caractères).');
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    setNewToken('');
+    try {
+      // Le jeton n'est stocké que sous forme de hash SHA-256 côté serveur :
+      // on l'affiche une seule fois, ici, puis il n'est plus récupérable.
+      const token = `kora_bot_${crypto.randomUUID()}`;
+      const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+      const hashHex = [...new Uint8Array(hashBuf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const { error } = await sb.from('bots').insert({ owner_id: user.id, name, token_hash: hashHex });
+      if (error) throw error;
+      setNewToken(token);
+      setBotName('');
+      await loadBots();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Création impossible (migration SQL en attente ?).');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteBot = async (id: string, name: string) => {
+    if (!window.confirm(`Supprimer le bot « ${name} » ? Il ne pourra plus poster.`)) return;
+    const { error } = await sb.from('bots').delete().eq('id', id);
+    if (error) {
+      setNotice(error.message);
+      return;
+    }
+    await loadBots();
+  };
+
+  return (
+    <div className="max-w-xl space-y-8">
+      <div>
+        <h3 className="mb-1 font-bold">Mode développeur</h3>
+        <p className="mb-4 text-sm text-muted">
+          Ajoute « Copier l’ID » aux menus des communautés, messages et profils. Réglage propre à cet appareil.
+        </p>
+        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
+          <span className="text-sm font-medium">Activer le mode développeur</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={dev}
+            onClick={toggleDev}
+            className={`relative h-6 w-11 rounded-full transition-colors ${dev ? 'bg-primary' : 'bg-line'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${dev ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </label>
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Mes bots</h3>
+        <p className="mb-4 text-sm text-muted">
+          Un bot poste dans les salons de tes communautés via l’API (jeton). Ajoute-le à une communauté depuis ses
+          paramètres, puis poste avec le jeton. Les bots ne peuvent jamais poster sans y être ajoutés, et le débit est
+          limité à 30 messages/minute. Aucun annuaire public « vérifié » : seuls tes bots et ceux de tes serveurs sont
+          listés.
+        </p>
+        <form onSubmit={createBot} className="flex gap-2">
+          <input
+            value={botName}
+            onChange={(e) => setBotName(e.target.value)}
+            placeholder="Nom du bot"
+            maxLength={32}
+            className={inputCls}
+          />
+          <button disabled={busy} className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            Créer
+          </button>
+        </form>
+        {newToken && (
+          <div className="mt-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3">
+            <p className="text-sm font-bold">Jeton affiché une seule fois — copie-le maintenant :</p>
+            <code className="mt-1 block break-all rounded bg-surface2 px-2 py-1 font-mono text-xs">{newToken}</code>
+            <p className="mt-1 text-xs text-muted">
+              Utilisation : POST sur Supabase avec la fonction <code className="font-mono">post_bot_message(jeton, salon_id, contenu)</code>.
+              Le jeton n’est stocké que sous forme de hash et ne pourra plus être affiché.
+            </p>
+          </div>
+        )}
+        {bots.length === 0 ? (
+          <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">Aucun bot pour le moment.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {bots.map((b) => (
+              <div key={b.id} className="flex items-center justify-between rounded-xl bg-surface2 px-4 py-2.5">
+                <span>
+                  <span className="block text-sm font-bold">{b.name}</span>
+                  <span className="text-xs text-muted">Créé le {new Date(b.created_at).toLocaleDateString('fr-FR')}</span>
+                </span>
+                <button onClick={() => deleteBot(b.id, b.name)} className="rounded-lg px-3 py-1 text-sm text-danger hover:bg-surface">
+                  Supprimer
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {notice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">{notice}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Onglet À propos                                                     */
 /* ------------------------------------------------------------------ */
 function AboutTab() {
@@ -1203,6 +1629,8 @@ export default function Settings() {
         {tab === 'notifications' && <NotificationsTab />}
         {tab === 'confidentialite' && <PrivacyTab />}
         {tab === 'securite' && <SecurityTab />}
+        {tab === 'raccourcis' && <ShortcutsTab />}
+        {tab === 'avance' && <AdvancedTab />}
         {tab === 'apropos' && <AboutTab />}
       </section>
     </div>

@@ -1,10 +1,12 @@
 import { initials } from '../lib/format';
+import { frameStyle } from '../lib/frames';
 import { STATUS_COLORS } from '../lib/types';
 
 export interface AvatarData {
   avatar_url?: string | null;
   display_name?: string;
   username?: string;
+  avatar_frame?: string | null;
 }
 
 interface Props {
@@ -14,10 +16,11 @@ interface Props {
   showStatus?: boolean;
 }
 
-/** Avatar avec repli sur initiales (jamais d'image cassée). */
+/** Avatar avec repli sur initiales (jamais d'image cassée) + décoration Kora. */
 export default function Avatar({ profile, size = 40, status = null, showStatus = false }: Props) {
   const name = profile?.display_name?.trim() || profile?.username || '?';
   const fontSize = Math.max(12, Math.round(size * 0.38));
+  const frame = frameStyle(profile?.avatar_frame);
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
       {profile?.avatar_url ? (
@@ -27,12 +30,12 @@ export default function Avatar({ profile, size = 40, status = null, showStatus =
           width={size}
           height={size}
           className="rounded-full object-cover"
-          style={{ width: size, height: size }}
+          style={{ width: size, height: size, ...(frame ?? {}) }}
         />
       ) : (
         <span
           className="flex items-center justify-center rounded-full bg-primary font-semibold text-white"
-          style={{ width: size, height: size, fontSize }}
+          style={{ width: size, height: size, fontSize, ...(frame ?? {}) }}
           aria-label={name}
         >
           {initials(name)}

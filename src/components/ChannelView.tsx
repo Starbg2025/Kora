@@ -2,16 +2,18 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
 import { containsMention, snippet } from '../lib/mentions';
+import { isDevMode } from '../lib/devMode';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
 import VerifiedBadge from './VerifiedBadge';
 import MessageContent from './MessageContent';
 import MessageToolbar from './MessageToolbar';
+import TranslateBlock from './TranslateBlock';
 import Modal from './Modal';
 import ReportModal from './ReportModal';
 import EmptyState from './EmptyState';
 import { formatDay, formatFull, formatTime } from '../lib/format';
-import { Copy, Flag, Image, Link2, Menu, Paperclip, Pencil, Pin, Reply, Trash2, Users, X } from 'lucide-react';
+import { Clock, Copy, Flag, Image, Languages, Link2, Menu, Paperclip, Pencil, Pin, Reply, Trash2, Users, X } from 'lucide-react';
 import {
   ROLE_COLORS,
   type Channel,
@@ -104,6 +106,14 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [sheetMsg, setSheetMsg] = useState<CommunityMessage | null>(null);
+  const [translateId, setTranslateId] = useState<string | null>(null);
+  const [devMode, setDevMode] = useState(isDevMode());
+
+  useEffect(() => {
+    const onDev = () => setDevMode(isDevMode());
+    window.addEventListener('kora:dev-mode-changed', onDev);
+    return () => window.removeEventListener('kora:dev-mode-changed', onDev);
+  }, []);
   const [reactionTarget, setReactionTarget] = useState<CommunityMessage | null>(null);
   const [reportTarget, setReportTarget] = useState<CommunityMessage | null>(null);
   const [myTimeoutUntil, setMyTimeoutUntil] = useState<string | null>(null);
@@ -266,7 +276,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             .then(({ data }) => {
               const p = data as { display_name: string; username: string } | null;
               const name = p?.display_name || p?.username || 'Quelqu’un';
-              notify('mention', `${name} t’a mentionné dans #${channel.name}`, snippet(m.content), `/app/c/${communityId}/${channel.id}`);
+              notify('mention', `${name} t’a mentionné dans #${channel.name}`, snippet(m.content), `/app/c/${communityId}/${channel.id}#msg-${m.id}`);
             });
         }
       })
@@ -607,6 +617,11 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           <h2 className="truncate font-extrabold">{channel.name}</h2>
           {channel.topic && <p className="truncate text-xs text-muted">{channel.topic}</p>}
         </div>
+        {(channel.slowmode_seconds ?? 0) > 0 && (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface2 px-2 py-1 text-[11px] font-bold text-muted" title={`Slowmode : ${channel.slowmode_seconds} s entre deux messages`}>
+            <Clock size={12} /> {channel.slowmode_seconds}s
+          </span>
+        )}
         <button
           onClick={() => setShowPins(true)}
           className="relative rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
@@ -680,7 +695,13 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                     className="group relative flex gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-surface/60"
                   >
                     {!compact ? (
-                      <Avatar profile={author ?? null} size={40} />
+                      m.bot_name ? (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/20 text-base font-extrabold text-primary" title={`Bot ${m.bot_name}`}>
+                          {m.bot_name.trim()[0]?.toUpperCase() ?? 'B'}
+                        </div>
+                      ) : (
+                        <Avatar profile={author ?? null} size={40} />
+                      )
                     ) : (
                       <div className="w-10 shrink-0 pt-0.5 text-center text-[11px] text-muted opacity-0 group-hover:opacity-100">
                         {formatTime(m.created_at)}
@@ -693,10 +714,24 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                             className="flex items-center gap-1.5 font-bold"
                             style={role && role !== 'membre' ? { color: ROLE_COLORS[role] } : undefined}
                           >
-                            <span>{author?.display_name || author?.username || 'Inconnu'}</span>
-                            {author?.is_verified && <VerifiedBadge size={14} />}
+                            {m.bot_name ? (
+                              <>
+                                <span>{m.bot_name}</span>
+                                <span className="rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-bold text-primary">BOT</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>{author?.display_name || author?.username || 'Inconnu'}</span>
+                                {author?.is_verified && <VerifiedBadge size={14} />}
+                              </>
+                            )}
                           </span>
                           <span className="text-xs text-muted">{formatTime(m.created_at)}</span>
+                          {m.via_webhook && (
+                            <span className="rounded bg-surface2 px-1.5 py-0.5 text-[10px] font-bold text-muted" title="Message posté via un webhook">
+                              Webhook
+                            </span>
+                          )}
                           {pinnedIds.has(m.id) && <span className="text-xs" title="Épinglé"><Pin size={16} /></span>}
                         </p>
                       )}
@@ -730,6 +765,9 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                         <>
                           {m.content && <MessageContent content={m.content} />}
                           {m.attachment_path && <AttachmentView path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
+                          {translateId === m.id && m.content && (
+                            <TranslateBlock content={m.content} onClose={() => setTranslateId(null)} />
+                          )}
                           {m.edited_at && <span className="ml-2 text-[11px] text-muted">(modifié)</span>}
                         </>
                       )}
@@ -948,6 +986,9 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
               <SheetRow icon={<Reply size={18} />} onClick={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}>Répondre</SheetRow>
               <SheetRow icon={<Copy size={18} />} onClick={() => copyText(sheetMsg)}>Copier le texte</SheetRow>
               <SheetRow icon={<Link2 size={18} />} onClick={() => copyLink(sheetMsg)}>Copier le lien</SheetRow>
+              {sheetMsg.content && (
+                <SheetRow icon={<Languages size={18} />} onClick={() => { setTranslateId(sheetMsg.id); setSheetMsg(null); }}>Traduire</SheetRow>
+              )}
               {sheetMsg.author_id !== me && (
                 <SheetRow icon={<Flag size={18} />} onClick={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}>Signaler</SheetRow>
               )}
@@ -974,6 +1015,11 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                   else setSheetMsg(null);
                 }}>
                   Supprimer
+                </SheetRow>
+              )}
+              {devMode && (
+                <SheetRow icon={<Copy size={18} />} onClick={() => { void navigator.clipboard?.writeText(sheetMsg.id); setSheetMsg(null); }}>
+                  Copier l’ID
                 </SheetRow>
               )}
             </div>

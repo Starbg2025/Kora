@@ -212,7 +212,7 @@ export default function DMs() {
               const p = data as { display_name: string; username: string } | null;
               const name = p?.display_name || p?.username || 'Quelqu’un';
               if (profile?.username && containsMention(m.content, profile.username)) {
-                notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}`);
+                notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}#msg-${m.id}`);
               } else {
                 notify('message', `${name} t’a envoyé un message`, snippet(m.content), `/app/dm/${m.dm_id}`);
               }
