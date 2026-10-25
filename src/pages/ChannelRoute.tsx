@@ -9,6 +9,7 @@ export interface ChannelOutletContext {
   myRole: CommunityRole | null;
   members: CommunityMember[];
   onToggleMembers: () => void;
+  onToggleChannels: () => void;
   onBack: () => void;
 }
 
@@ -73,6 +74,7 @@ export default function ChannelRoute() {
       myRole={ctx.myRole}
       members={ctx.members}
       onToggleMembers={ctx.onToggleMembers}
+      onToggleChannels={ctx.onToggleChannels}
       onBack={ctx.onBack}
     />
   );

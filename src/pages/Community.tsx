@@ -38,14 +38,39 @@ export default function Community() {
   const [notMember, setNotMember] = useState(false);
 
   const [showMenu, setShowMenu] = useState(false);
-  // Panneau membres : colonne persistante sur bureau, tiroir sur mobile
+  // Panneau membres : colonne persistante sur bureau, tiroir sur mobile.
+  // Par défaut : ouvert sur grand écran, fermé sur tablette/mobile (la
+  // préférence enregistrée, si elle existe, l'emporte).
   const [membersOpen, setMembersOpen] = useState(() => {
     try {
-      return localStorage.getItem('kora:members-open') !== 'false';
+      const stored = localStorage.getItem('kora:members-open');
+      if (stored !== null) return stored === 'true';
+      return window.innerWidth >= 1024;
     } catch {
       return true;
     }
   });
+  // Panneau salons repliable (tablette : la conversation passe en priorité).
+  const [channelsOpen, setChannelsOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem('kora:channels-open');
+      if (stored !== null) return stored === 'true';
+      return window.innerWidth >= 1024;
+    } catch {
+      return true;
+    }
+  });
+  const toggleChannels = useCallback(() => {
+    setChannelsOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('kora:channels-open', String(next));
+      } catch {
+        /* stockage indisponible */
+      }
+      return next;
+    });
+  }, []);
   const [membersDrawer, setMembersDrawer] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showModeration, setShowModeration] = useState(false);
@@ -222,6 +247,7 @@ export default function Community() {
         });
       }
     },
+    onToggleChannels: toggleChannels,
     onBack: () => navigate(`/app/c/${communityId}`),
   };
 
@@ -521,11 +547,11 @@ export default function Community() {
 
   return (
     <div className="flex h-full bg-base">
-      {/* Sidebar des salons (240 px sur bureau) */}
+      {/* Sidebar des salons (240 px tablette, 288 px bureau, repliable) */}
       <aside
         className={`${
-          channelId ? 'hidden md:flex' : 'flex'
-        } w-full flex-col bg-surface md:w-60 md:shrink-0`}
+          channelId ? 'hidden' : 'flex'
+        } ${channelsOpen ? 'md:flex' : 'md:hidden'} w-full flex-col bg-surface md:w-60 md:shrink-0 lg:w-72`}
         aria-label="Salons de la communauté"
       >
         <div className="relative flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
@@ -561,6 +587,14 @@ export default function Community() {
             aria-label="Inviter des membres"
           >
             🔗
+          </button>
+          <button
+            onClick={toggleChannels}
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface2 hover:text-ink md:flex"
+            title="Replier les salons"
+            aria-label="Replier les salons"
+          >
+            ‹
           </button>
           {showMenu && (
             <>
@@ -755,7 +789,15 @@ export default function Community() {
         {channelId ? (
           <Outlet context={outletContext} />
         ) : (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3">
+            {!channelsOpen && (
+              <button
+                onClick={toggleChannels}
+                className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+              >
+                ☰ Voir les salons
+              </button>
+            )}
             <EmptyState title="Sélectionne un salon" text="Choisis un salon dans la liste pour commencer à discuter." />
           </div>
         )}

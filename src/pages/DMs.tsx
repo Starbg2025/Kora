@@ -361,7 +361,7 @@ export default function DMs() {
 
   return (
     <div className="flex h-full">
-      <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-60 md:shrink-0`}>
+      <aside className={`${openDmId ? 'hidden md:flex' : 'flex'} w-full flex-col border-r border-line bg-surface md:w-60 md:shrink-0 lg:w-72`}>
         <div className="flex items-center gap-2 px-4 pb-2 pt-4">
           <h1 className="flex-1 text-lg font-extrabold">Messages privés</h1>
         </div>
@@ -384,7 +384,7 @@ export default function DMs() {
             title="Ajouter des amis"
             aria-label="Ajouter des amis"
           >
-            <span>👥</span> <span className="hidden sm:inline">Ajouter des amis</span>
+            <span>👥</span> <span className="hidden lg:inline">Ajouter des amis</span>
           </button>
           <button
             onClick={() => navigate('/app/dm/nouveau')}
@@ -481,9 +481,13 @@ export default function DMs() {
             })
           )}
         </div>
-        {/* Barre de compte fixe : avatar, nom, statut, micro, casque, paramètres */}
+        {/* Barre de compte fixe (56 px) : avatar, nom avec ellipsis, cloche, paramètres.
+            Boutons à taille fixe 36 px pour que le nom ne soit jamais écrasé,
+            même dans un panneau de 240 px. */}
         <div className="flex h-14 shrink-0 items-center gap-1 border-t border-line bg-surface px-2">
-          <Avatar profile={profile} size={36} status={myPresence} showStatus />
+          <span className="shrink-0">
+            <Avatar profile={profile} size={36} status={myPresence} showStatus />
+          </span>
           <div className="min-w-0 flex-1 px-1">
             <p className="truncate text-sm font-bold">{profile?.display_name || profile?.username || 'Moi'}</p>
             <p className="truncate text-[11px] text-muted">
@@ -492,7 +496,7 @@ export default function DMs() {
           </div>
           <button
             onClick={() => navigate('/app/notifications')}
-            className="relative rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface2 hover:text-ink"
             title="Notifications"
             aria-label="Notifications"
           >
@@ -504,24 +508,8 @@ export default function DMs() {
             )}
           </button>
           <button
-            onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
-            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
-            title="Micro (appels vocaux bientôt disponibles)"
-            aria-label="Micro"
-          >
-            🎤
-          </button>
-          <button
-            onClick={() => flash('Les appels vocaux arrivent avec la prochaine mise à jour de Kora.')}
-            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
-            title="Casque (appels vocaux bientôt disponibles)"
-            aria-label="Casque"
-          >
-            🎧
-          </button>
-          <button
             onClick={() => navigate('/app/parametres')}
-            className="rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface2 hover:text-ink"
             title="Paramètres utilisateur"
             aria-label="Paramètres utilisateur"
           >

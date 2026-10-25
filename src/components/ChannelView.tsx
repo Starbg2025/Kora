@@ -32,6 +32,7 @@ interface Props {
   myRole: CommunityRole | null;
   members: CommunityMember[];
   onToggleMembers: () => void;
+  onToggleChannels: () => void;
   onBack: () => void;
 }
 
@@ -80,7 +81,7 @@ function AttachmentView({ path, name }: { path: string; name: string }) {
 }
 
 /** Vue d'un salon textuel : messages temps réel, réactions, épinglés, pièces jointes. */
-export default function ChannelView({ communityId, channel, myRole, members, onToggleMembers, onBack }: Props) {
+export default function ChannelView({ communityId, channel, myRole, members, onToggleMembers, onToggleChannels, onBack }: Props) {
   const { sb, user, profile } = useAuth();
   const { notify } = useNotifications();
   const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -576,6 +577,14 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
         <button onClick={onBack} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:hidden" aria-label="Retour aux salons">
           ←
         </button>
+        <button
+          onClick={onToggleChannels}
+          className="hidden shrink-0 rounded-lg p-2 text-muted hover:bg-surface2 hover:text-ink md:block"
+          title="Salons"
+          aria-label="Afficher ou masquer les salons"
+        >
+          ☰
+        </button>
         <span className="text-xl text-muted">#</span>
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-extrabold">{channel.name}</h2>
@@ -605,7 +614,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-3 py-3 md:px-5">
+      <div ref={scrollRef} onScroll={onScroll} className="mx-auto min-h-0 w-full min-[1600px]:max-w-[820px] flex-1 overflow-y-auto px-3 py-3 md:px-5">
         {loading ? (
           <p className="py-10 text-center text-sm text-muted">Chargement…</p>
         ) : messages.length === 0 ? (
@@ -747,7 +756,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       </div>
 
       {/* Compositeur */}
-      <div className="shrink-0 border-t border-line bg-surface px-3 py-2.5 md:px-5">
+      <div className="shrink-0 border-t border-line bg-surface px-3 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] md:px-5">
+        <div className="mx-auto w-full min-[1600px]:max-w-[820px]">
         {rtDegraded && (
           <p className="mb-2 rounded-lg bg-accent/10 px-3 py-1.5 text-center text-xs text-accent">
             Connexion temps réel interrompue — actualisation automatique active.
@@ -854,6 +864,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
               <path d="M22 2 11 13" />
             </svg>
           </button>
+        </div>
         </div>
       </div>
 

@@ -1175,7 +1175,7 @@ export default function Conversation() {
         </div>
 
         {/* Messages */}
-        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-3 py-4 md:px-5">
+        <div ref={scrollRef} onScroll={onScroll} className="relative mx-auto w-full min-[1600px]:max-w-[820px] flex-1 overflow-y-auto px-3 py-4 md:px-5">
           {timeline.length === 0 ? (
             <EmptyState
               title="Aucun message pour l’instant"
@@ -1364,7 +1364,8 @@ export default function Conversation() {
         )}
 
         {/* Compositeur façon Discord */}
-        <div className="border-t border-line px-3 py-2.5 md:px-5 md:py-3">
+        <div className="border-t border-line px-3 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] md:px-5 md:pt-3">
+          <div className="mx-auto w-full min-[1600px]:max-w-[820px]">
           {rtDegraded && (
             <p className="mb-2 rounded-lg bg-accent/10 px-3 py-1.5 text-center text-xs text-accent">
               Connexion temps réel interrompue — actualisation automatique active.
@@ -1494,6 +1495,7 @@ export default function Conversation() {
               {sendError && <p className="mt-1 text-xs text-danger">{sendError}</p>}
             </>
           )}
+          </div>
         </div>
       </div>
 
