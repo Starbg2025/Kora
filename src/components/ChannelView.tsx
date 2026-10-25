@@ -8,12 +8,13 @@ import EmojiPicker from './EmojiPicker';
 import VerifiedBadge from './VerifiedBadge';
 import MessageContent from './MessageContent';
 import MessageToolbar from './MessageToolbar';
+import ThreadPanel from './ThreadPanel';
 import TranslateBlock from './TranslateBlock';
 import Modal from './Modal';
 import ReportModal from './ReportModal';
 import EmptyState from './EmptyState';
 import { formatDay, formatFull, formatTime } from '../lib/format';
-import { Clock, Copy, Flag, Image, Languages, Link2, Menu, Paperclip, Pencil, Pin, Reply, Trash2, Users, X } from 'lucide-react';
+import { Clock, Copy, Flag, Image, Languages, Link2, Menu, MessagesSquare, Paperclip, Pencil, Pin, Reply, Trash2, Users, X } from 'lucide-react';
 import {
   ROLE_COLORS,
   type Channel,
@@ -103,6 +104,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
   const [showEmoji, setShowEmoji] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [replyTo, setReplyTo] = useState<CommunityMessage | null>(null);
+  const [threadParent, setThreadParent] = useState<CommunityMessage | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [sheetMsg, setSheetMsg] = useState<CommunityMessage | null>(null);
@@ -793,6 +795,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                     <MessageToolbar
                       onReact={() => setReactionTarget(m)}
                       onReply={() => setReplyTo(m)}
+                      onThread={() => setThreadParent(m)}
                       onCopyLink={() => copyLink(m)}
                       canEdit={isMe}
                       onEdit={() => { setEditingId(m.id); setEditText(m.content); }}
@@ -984,6 +987,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             </div>
             <div className="overflow-hidden rounded-2xl bg-surface2/40">
               <SheetRow icon={<Reply size={18} />} onClick={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}>Répondre</SheetRow>
+              <SheetRow icon={<MessagesSquare size={18} />} onClick={() => { setThreadParent(sheetMsg); setSheetMsg(null); }}>Fil de discussion</SheetRow>
               <SheetRow icon={<Copy size={18} />} onClick={() => copyText(sheetMsg)}>Copier le texte</SheetRow>
               <SheetRow icon={<Link2 size={18} />} onClick={() => copyLink(sheetMsg)}>Copier le lien</SheetRow>
               {sheetMsg.content && (
@@ -1061,6 +1065,35 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       {toast && (
         <div className="fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-ink px-4 py-2.5 text-sm font-medium text-base shadow-xl md:bottom-6">
           {toast}
+        </div>
+      )}
+
+      {/* Fil de discussion : tiroir latéral (bureau) / plein écran (mobile). */}
+      {threadParent && (
+        <div className="fixed inset-y-0 right-0 z-50 w-full bg-surface shadow-2xl sm:w-80 sm:border-l sm:border-line">
+          <ThreadPanel
+            table="community_messages"
+            parentId={threadParent.id}
+            parentAuthor={profilesById.get(threadParent.author_id)?.display_name || profilesById.get(threadParent.author_id)?.username || 'Inconnu'}
+            parentContent={threadParent.content || ''}
+            parentCreatedAt={threadParent.created_at}
+            resolveName={(authorId) => profilesById.get(authorId)?.display_name || profilesById.get(authorId)?.username || 'Inconnu'}
+            onSend={async (content) => {
+              const { data: inserted, error } = await sb.from('community_messages').insert({
+                channel_id: channel.id,
+                author_id: me,
+                content,
+                attachment_path: null,
+                attachment_name: null,
+                reply_to: threadParent.id,
+              }).select().single();
+              if (error) throw error;
+              if (inserted) {
+                setMessages((prev) => (prev.some((x) => x.id === (inserted as CommunityMessage).id) ? prev : [...prev, inserted as CommunityMessage]));
+              }
+            }}
+            onClose={() => setThreadParent(null)}
+          />
         </div>
       )}
     </div>

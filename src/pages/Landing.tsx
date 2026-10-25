@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Logo from '../components/Logo';
 import { requireSupabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 const FEATURES = [
   {
@@ -92,6 +93,7 @@ const ROADMAP = [
 ];
 
 export default function Landing() {
+  const { user, loading } = useAuth();
   const [announcement, setAnnouncement] = useState<string | null>(null);
   useEffect(() => {
     requireSupabase()
@@ -119,12 +121,23 @@ export default function Landing() {
           <a href="#feuille-de-route" className="hidden rounded-lg px-3 py-2 text-muted hover:text-ink sm:block">
             Feuille de route
           </a>
-          <Link to="/connexion" className="rounded-lg px-4 py-2 font-medium text-muted hover:text-ink">
-            Se connecter
-          </Link>
-          <Link to="/inscription" className="rounded-xl bg-primary px-4 py-2 font-semibold text-white hover:opacity-90">
-            Créer un compte
-          </Link>
+          {/* Accueil conscient de la session : un utilisateur déjà connecté ne doit
+              jamais voir « Se connecter » comme s'il avait perdu sa session. */}
+          {!loading && user && (
+            <Link to="/app" className="rounded-xl bg-primary px-4 py-2 font-semibold text-white hover:opacity-90">
+              Ouvrir Kora
+            </Link>
+          )}
+          {!loading && !user && (
+            <>
+              <Link to="/connexion" className="rounded-lg px-4 py-2 font-medium text-muted hover:text-ink">
+                Se connecter
+              </Link>
+              <Link to="/inscription" className="rounded-xl bg-primary px-4 py-2 font-semibold text-white hover:opacity-90">
+                Créer un compte
+              </Link>
+            </>
+          )}
         </nav>
       </header>
 
@@ -150,18 +163,29 @@ export default function Landing() {
             Ici, pas de faux membres ni de faux messages — tout ce que tu vois est réel.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link
-              to="/inscription"
-              className="w-full rounded-2xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-lg hover:opacity-90 sm:w-auto"
-            >
-              Créer un compte gratuit
-            </Link>
-            <Link
-              to="/connexion"
-              className="w-full rounded-2xl bg-surface2 px-8 py-4 text-lg font-semibold text-ink hover:bg-line sm:w-auto"
-            >
-              J’ai déjà un compte
-            </Link>
+            {user ? (
+              <Link
+                to="/app/dm"
+                className="w-full rounded-2xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-lg hover:opacity-90 sm:w-auto"
+              >
+                Ouvrir mes conversations
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/inscription"
+                  className="w-full rounded-2xl bg-primary px-8 py-4 text-lg font-bold text-white shadow-lg hover:opacity-90 sm:w-auto"
+                >
+                  Créer un compte gratuit
+                </Link>
+                <Link
+                  to="/connexion"
+                  className="w-full rounded-2xl bg-surface2 px-8 py-4 text-lg font-semibold text-ink hover:bg-line sm:w-auto"
+                >
+                  J’ai déjà un compte
+                </Link>
+              </>
+            )}
           </div>
         </section>
 

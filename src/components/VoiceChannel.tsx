@@ -41,7 +41,17 @@ interface Participant {
 function RemoteAudio({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    // Sortie audio choisie dans Paramètres > Audio et vidéo, si supportée.
+    try {
+      const out = localStorage.getItem('kora:audio-output');
+      const withSink = el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+      if (out && typeof withSink.setSinkId === 'function') {
+        withSink.setSinkId(out).catch(() => {});
+      }
+    } catch { /* sortie par défaut */ }
   }, [stream]);
   return <audio ref={ref} autoPlay />;
 }
@@ -362,10 +372,25 @@ export default function VoiceChannel({
     setJoining(true);
     setNotice('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation, noiseSuppression, autoGainControl: autoGain },
-        video: false,
-      });
+      // Micro choisi dans Paramètres > Audio et vidéo, avec repli sur le
+      // micro par défaut si le périphérique n'est plus disponible.
+      const storedInput = (() => {
+        try { return localStorage.getItem('kora:audio-input') || undefined; } catch { return undefined; }
+      })();
+      const baseAudio: MediaTrackConstraints = { echoCancellation, noiseSuppression, autoGainControl: autoGain };
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: storedInput ? { ...baseAudio, deviceId: { exact: storedInput } } : baseAudio,
+          video: false,
+        });
+      } catch (err) {
+        if (storedInput) {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio, video: false });
+        } else {
+          throw err;
+        }
+      }
       localStreamRef.current = stream;
       // « Rejoindre en muet » : micro coupé dès l'arrivée.
       if (joinMuted) {

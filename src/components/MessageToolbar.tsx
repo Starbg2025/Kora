@@ -1,4 +1,4 @@
-import { Link2, MoreHorizontal, Pencil, Reply, Smile, Trash2 } from 'lucide-react';
+import { Link2, MessagesSquare, MoreHorizontal, Pencil, Reply, Smile, Trash2 } from 'lucide-react';
 /**
  * Barre d'actions flottante d'un message (bureau) : apparaît au survol, ancrée
  * en haut à droite du message. Le parent doit être `relative` et `group`.
@@ -13,6 +13,7 @@ export default function MessageToolbar({
   canDelete,
   onDelete,
   onMore,
+  onThread,
 }: {
   onReact: () => void;
   onReply: () => void;
@@ -22,6 +23,7 @@ export default function MessageToolbar({
   canDelete: boolean;
   onDelete?: () => void;
   onMore: () => void;
+  onThread?: () => void;
 }) {
   const btn =
     'flex h-7 w-7 items-center justify-center rounded-md text-sm text-muted hover:bg-surface2 hover:text-ink';
@@ -33,6 +35,11 @@ export default function MessageToolbar({
       <button onClick={onReply} className={btn} title="Répondre" aria-label="Répondre">
         <Reply size={16} />
       </button>
+      {onThread && (
+        <button onClick={onThread} className={btn} title="Fil de discussion" aria-label="Fil de discussion">
+          <MessagesSquare size={16} />
+        </button>
+      )}
       <button onClick={onCopyLink} className={btn} title="Copier le lien du message" aria-label="Copier le lien du message">
         <Link2 size={16} />
       </button>

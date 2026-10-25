@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Logo from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
 
 type Step = 'login' | 'mfa';
 
 export default function Login() {
-  const { sb } = useAuth();
+  const { sb, user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? '/app';
@@ -83,6 +83,9 @@ export default function Login() {
       setBusy(false);
     }
   };
+
+  // Déjà connecté : ne jamais afficher le formulaire de connexion.
+  if (!loading && user) return <Navigate to={from} replace />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-base px-4">

@@ -7,6 +7,7 @@ import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
 import MessageToolbar from '../components/MessageToolbar';
+import ThreadPanel from '../components/ThreadPanel';
 import EmojiPicker from '../components/EmojiPicker';
 import VoiceRecorder from '../components/VoiceRecorder';
 import MessageActionSheet from '../components/MessageActionSheet';
@@ -160,6 +161,7 @@ export default function Conversation() {
 
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [threadParent, setThreadParent] = useState<Message | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Message | null>(null);
@@ -1350,6 +1352,7 @@ export default function Conversation() {
                     <MessageToolbar
                       onReact={() => setReactionTarget(m)}
                       onReply={() => setReplyTo(m)}
+                      onThread={() => setThreadParent(m)}
                       onCopyLink={() => copyMessageLink(m)}
                       canEdit={isMe}
                       onEdit={() => { setEditingId(m.id); setEditText(m.content); }}
@@ -1694,6 +1697,7 @@ export default function Conversation() {
           onReact={(e) => toggleReaction(sheetMsg.id, e)}
           onEdit={() => { setEditingId(sheetMsg.id); setEditText(sheetMsg.content); setSheetMsg(null); }}
           onReply={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}
+          onThread={() => { setThreadParent(sheetMsg); setSheetMsg(null); }}
           onForward={() => openForward(sheetMsg)}
           onCopy={() => copyText(sheetMsg)}
           onMarkUnread={() => markUnread(sheetMsg)}
@@ -1790,6 +1794,35 @@ export default function Conversation() {
       {toast && (
         <div className="fixed bottom-20 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-base shadow-2xl md:bottom-8">
           {toast}
+        </div>
+      )}
+
+      {/* Fil de discussion : colonne latérale sur bureau, plein écran sur mobile. */}
+      {threadParent && (
+        <div className="fixed inset-0 z-50 bg-surface md:static md:z-auto md:w-80 md:shrink-0 md:bg-transparent">
+          <ThreadPanel
+            table="messages"
+            parentId={threadParent.id}
+            parentAuthor={profilesById.get(threadParent.author_id)?.display_name || profilesById.get(threadParent.author_id)?.username || 'Inconnu'}
+            parentContent={threadParent.content || ''}
+            parentCreatedAt={threadParent.created_at}
+            resolveName={(authorId) => profilesById.get(authorId)?.display_name || profilesById.get(authorId)?.username || 'Inconnu'}
+            onSend={async (content) => {
+              const { data: inserted, error } = await sb.from('messages').insert({
+                dm_id: dmId,
+                author_id: me,
+                content,
+                attachment_path: null,
+                attachment_name: null,
+                reply_to: threadParent.id,
+              }).select().single();
+              if (error) throw error;
+              if (inserted) {
+                setMessages((prev) => (prev.some((x) => x.id === (inserted as Message).id) ? prev : [...prev, inserted as Message]));
+              }
+            }}
+            onClose={() => setThreadParent(null)}
+          />
         </div>
       )}
     </div>

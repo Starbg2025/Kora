@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import Logo from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
 import { isValidUsername } from '../lib/format';
 
 export default function Signup() {
-  const { sb } = useAuth();
+  const { sb, user, loading } = useAuth();
   const navigate = useNavigate();
 
   const [username, setUsername] = useState('');
@@ -79,6 +79,9 @@ export default function Signup() {
 
   const inputCls =
     'w-full rounded-xl border border-line bg-surface2 px-4 py-3 text-ink outline-none focus:border-primary';
+
+  // Déjà connecté : ne jamais afficher le formulaire d'inscription.
+  if (!loading && user) return <Navigate to="/app" replace />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-base px-4 py-10">

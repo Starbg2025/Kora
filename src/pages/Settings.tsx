@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
-import { Bell, Code2, Info, Keyboard, Lock, LogOut, Palette, Shield, SquarePen, User, type LucideIcon } from 'lucide-react';
+import { Accessibility, Bell, Code2, Info, Keyboard, Lock, LogOut, Mic, Palette, Shield, SquarePen, User, Users, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationsContext';
+import { useFriends } from '../hooks/useFriends';
 import { useTheme, ACCENT_COLORS, type DensityChoice, type TextSizeChoice, type ThemeChoice } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import { isValidUsername } from '../lib/format';
@@ -12,7 +13,7 @@ import { AVATAR_FRAMES, PROFILE_THEMES, parseProfileTheme } from '../lib/frames'
 import { isDevMode, setDevMode, useServerColors, setUseServerColors } from '../lib/devMode';
 import { STATUS_LABELS, type DM, type PresenceStatus, type UserSettings } from '../lib/types';
 
-type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'raccourcis' | 'avance' | 'apropos';
+type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'amis' | 'audio' | 'accessibilite' | 'raccourcis' | 'avance' | 'apropos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'compte', label: 'Compte' },
@@ -21,6 +22,9 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'confidentialite', label: 'Confidentialité' },
   { id: 'securite', label: 'Sécurité' },
+  { id: 'amis', label: 'Amis et demandes' },
+  { id: 'audio', label: 'Audio et vidéo' },
+  { id: 'accessibilite', label: 'Accessibilité' },
   { id: 'raccourcis', label: 'Raccourcis' },
   { id: 'avance', label: 'Avancé' },
   { id: 'apropos', label: 'À propos' },
@@ -33,6 +37,9 @@ const TAB_ICONS: Record<TabId, LucideIcon> = {
   notifications: Bell,
   confidentialite: Lock,
   securite: Shield,
+  amis: Users,
+  audio: Mic,
+  accessibilite: Accessibility,
   raccourcis: Keyboard,
   avance: Code2,
   apropos: Info,
@@ -1549,6 +1556,257 @@ function AboutTab() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Onglet Audio et vidéo                                               */
+/* Les choix sont stockés dans le navigateur et appliqués au prochain   */
+/* salon vocal (micro d'entrée, sortie audio, mode vocal, muet).       */
+/* ------------------------------------------------------------------ */
+function AudioTab() {
+  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [detected, setDetected] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [inputId, setInputId] = useState(() => {
+    try { return localStorage.getItem('kora:audio-input') || ''; } catch { return ''; }
+  });
+  const [outputId, setOutputId] = useState(() => {
+    try { return localStorage.getItem('kora:audio-output') || ''; } catch { return ''; }
+  });
+  const [voiceMode, setVoiceMode] = useState(() => {
+    try { return (localStorage.getItem('kora:voice-mode') as 'vad' | 'ptt') || 'vad'; } catch { return 'vad'; }
+  });
+  const [joinMuted, setJoinMuted] = useState(() => {
+    try { return localStorage.getItem('kora:voice-join-muted') === '1'; } catch { return false; }
+  });
+
+  const detect = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setInputs(devices.filter((d) => d.kind === 'audioinput'));
+      setOutputs(devices.filter((d) => d.kind === 'audiooutput'));
+      setDetected(true);
+    } catch {
+      setError("Impossible d'accéder au microphone. Autorise l'accès dans ton navigateur pour lister tes appareils.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pick = (key: string, value: string, setter: (v: string) => void) => {
+    setter(value);
+    try { localStorage.setItem(key, value); } catch { /* stockage indisponible */ }
+  };
+
+  return (
+    <div className="max-w-xl space-y-6">
+      <p className="text-sm text-muted">
+        Ces réglages s'appliquent à ton prochain salon vocal. Ils sont conservés dans ce navigateur.
+      </p>
+      <section>
+        <h3 className="mb-2 font-semibold">Périphériques</h3>
+        {!detected ? (
+          <>
+            <button onClick={detect} disabled={busy} className="rounded-lg bg-surface2 px-4 py-2 text-sm font-medium hover:bg-line disabled:opacity-50">
+              {busy ? 'Détection…' : 'Détecter mes appareils'}
+            </button>
+            <p className="mt-2 text-xs text-muted">Le navigateur demandera l'accès au microphone pour nommer tes appareils.</p>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="audio-in" className="mb-1 block text-sm font-medium">Microphone</label>
+              <select
+                id="audio-in" value={inputId} onChange={(e) => pick('kora:audio-input', e.target.value, setInputId)}
+                className="w-full rounded-xl border border-line bg-surface2 px-3 py-2.5 text-sm text-ink outline-none focus:border-primary"
+              >
+                <option value="">Microphone par défaut</option>
+                {inputs.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${d.deviceId.slice(0, 8)}`}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="audio-out" className="mb-1 block text-sm font-medium">Sortie audio</label>
+              <select
+                id="audio-out" value={outputId} onChange={(e) => pick('kora:audio-output', e.target.value, setOutputId)}
+                className="w-full rounded-xl border border-line bg-surface2 px-3 py-2.5 text-sm text-ink outline-none focus:border-primary"
+              >
+                <option value="">Sortie par défaut</option>
+                {outputs.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Sortie ${d.deviceId.slice(0, 8)}`}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted">La sortie choisie s'applique aux voix distantes (navigateurs compatibles).</p>
+            </div>
+          </div>
+        )}
+        {error && <p className="rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
+      </section>
+      <section>
+        <h3 className="mb-2 font-semibold">Mode vocal</h3>
+        <div className="space-y-2">
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-surface2">
+            <input type="radio" name="voice-mode" checked={voiceMode === 'vad'} onChange={() => { setVoiceMode('vad'); try { localStorage.setItem('kora:voice-mode', 'vad'); } catch { /* noop */ } }} />
+            <span className="text-sm"><span className="font-medium">Activité vocale</span> — le micro s'ouvre quand tu parles.</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-surface2">
+            <input type="radio" name="voice-mode" checked={voiceMode === 'ptt'} onChange={() => { setVoiceMode('ptt'); try { localStorage.setItem('kora:voice-mode', 'ptt'); } catch { /* noop */ } }} />
+            <span className="text-sm"><span className="font-medium">Push-to-talk</span> — maintiens le bouton ou la touche Espace pour parler.</span>
+          </label>
+        </div>
+      </section>
+      <section>
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-surface2">
+          <span className="text-sm"><span className="font-medium">Rejoindre en muet</span><br /><span className="text-muted">Arriver dans un salon vocal avec le micro coupé.</span></span>
+          <input
+            type="checkbox" checked={joinMuted}
+            onChange={(e) => { setJoinMuted(e.target.checked); try { localStorage.setItem('kora:voice-join-muted', e.target.checked ? '1' : '0'); } catch { /* noop */ } }}
+            className="h-5 w-5 shrink-0 accent-[rgb(var(--c-primary))]"
+          />
+        </label>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Accessibilité                                                */
+/* Regroupe les réglages existants : taille du texte, densité,         */
+/* réduction des animations.                                           */
+/* ------------------------------------------------------------------ */
+function AccessibiliteTab() {
+  const { textSize, setTextSize, density, setDensity, reduceMotion, setReduceMotion } = useTheme();
+  return (
+    <div className="max-w-xl space-y-6">
+      <p className="text-sm text-muted">
+        Ces réglages s'appliquent immédiatement et sont conservés dans ton compte.
+      </p>
+      <section>
+        <h3 className="mb-2 font-semibold">Taille du texte</h3>
+        <div className="flex gap-2">
+          {([
+            ['petit', 'Petit'],
+            ['normal', 'Normal'],
+            ['grand', 'Grand'],
+          ] as Array<[TextSizeChoice, string]>).map(([v, label]) => (
+            <button
+              key={v} onClick={() => setTextSize(v)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${textSize === v ? 'bg-primary text-white' : 'bg-surface2 hover:bg-line'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section>
+        <h3 className="mb-2 font-semibold">Densité de l'interface</h3>
+        <div className="flex gap-2">
+          {([
+            ['confortable', 'Confortable'],
+            ['compacte', 'Compacte'],
+          ] as Array<[DensityChoice, string]>).map(([v, label]) => (
+            <button
+              key={v} onClick={() => setDensity(v)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${density === v ? 'bg-primary text-white' : 'bg-surface2 hover:bg-line'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">La densité compacte resserre les listes de conversations et les messages.</p>
+      </section>
+      <section>
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-surface2">
+          <span className="text-sm"><span className="font-medium">Réduire les animations</span><br /><span className="text-muted">Désactive les transitions et animations non essentielles.</span></span>
+          <input type="checkbox" checked={reduceMotion} onChange={(e) => setReduceMotion(e.target.checked)} className="h-5 w-5 shrink-0 accent-[rgb(var(--c-primary))]" />
+        </label>
+      </section>
+      <section>
+        <h3 className="mb-2 font-semibold">Navigation au clavier</h3>
+        <p className="text-sm text-muted">
+          Les contrôles principaux sont atteignables au clavier (Tab / Maj+Tab) avec un contour visible.
+          Raccourcis utiles : Ctrl+K pour rechercher, Maj+Échap pour marquer un serveur comme lu, Échap pour fermer les fenêtres.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Amis et demandes                                             */
+/* Vue d'ensemble + bascules réelles, la gestion détaillée reste sur   */
+/* la page Amis (listes, acceptation, blocage).                        */
+/* ------------------------------------------------------------------ */
+function AmisTab() {
+  const { entries, loading } = useFriends();
+  const { settings, saveSettings } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const friends = entries.filter((e) => e.friendship.status === 'accepted');
+  const pending = entries.filter((e) => e.friendship.status === 'pending');
+  const blocked = entries.filter((e) => e.friendship.status === 'blocked');
+  const open = settings?.friend_requests_open ?? true;
+
+  const toggleOpen = async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await saveSettings({ friend_requests_open: !open });
+      setNotice(!open ? 'Demandes d’amis ouvertes.' : 'Demandes d’amis fermées.');
+    } catch {
+      setNotice('Enregistrement impossible.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="max-w-xl space-y-6">
+      <section>
+        <h3 className="mb-2 font-semibold">Aperçu</h3>
+        {loading ? (
+          <p className="text-sm text-muted">Chargement…</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <Link to="/app/amis?onglet=tous" className="rounded-xl bg-surface2 px-4 py-3 text-center hover:bg-line">
+              <p className="text-xl font-bold">{friends.length}</p>
+              <p className="text-xs text-muted">Amis</p>
+            </Link>
+            <Link to="/app/amis?onglet=attente" className="rounded-xl bg-surface2 px-4 py-3 text-center hover:bg-line">
+              <p className="text-xl font-bold">{pending.length}</p>
+              <p className="text-xs text-muted">En attente</p>
+            </Link>
+            <Link to="/app/amis?onglet=bloques" className="rounded-xl bg-surface2 px-4 py-3 text-center hover:bg-line">
+              <p className="text-xl font-bold">{blocked.length}</p>
+              <p className="text-xs text-muted">Bloqués</p>
+            </Link>
+          </div>
+        )}
+      </section>
+      <section>
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2 hover:bg-surface2">
+          <span className="text-sm"><span className="font-medium">Accepter les demandes d'amis</span><br /><span className="text-muted">Si fermé, personne ne peut t'envoyer de demande.</span></span>
+          <input type="checkbox" checked={open} disabled={busy} onChange={toggleOpen} className="h-5 w-5 shrink-0 accent-[rgb(var(--c-primary))]" />
+        </label>
+        {notice && <p className="mt-2 text-sm text-muted">{notice}</p>}
+      </section>
+      <section>
+        <h3 className="mb-2 font-semibold">Gérer</h3>
+        <nav className="flex flex-col gap-1 text-sm">
+          <Link to="/app/amis?onglet=tous" className="rounded-lg px-3 py-2 text-primary hover:bg-surface2">Voir mes amis →</Link>
+          <Link to="/app/amis?onglet=attente" className="rounded-lg px-3 py-2 text-primary hover:bg-surface2">Demandes en attente →</Link>
+          <Link to="/app/amis?onglet=bloques" className="rounded-lg px-3 py-2 text-primary hover:bg-surface2">Utilisateurs bloqués →</Link>
+        </nav>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 export default function Settings() {
@@ -1629,6 +1887,9 @@ export default function Settings() {
         {tab === 'notifications' && <NotificationsTab />}
         {tab === 'confidentialite' && <PrivacyTab />}
         {tab === 'securite' && <SecurityTab />}
+        {tab === 'amis' && <AmisTab />}
+        {tab === 'audio' && <AudioTab />}
+        {tab === 'accessibilite' && <AccessibiliteTab />}
         {tab === 'raccourcis' && <ShortcutsTab />}
         {tab === 'avance' && <AdvancedTab />}
         {tab === 'apropos' && <AboutTab />}

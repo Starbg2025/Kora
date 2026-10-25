@@ -80,9 +80,17 @@ interface Toast {
 }
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
-  const { sb, user, settings } = useAuth();
+  const { sb, user, settings, profile } = useAuth();
   const navigate = useNavigate();
   const tag = useId().replace(/[^a-zA-Z0-9]/g, '');
+  // Statut « Ne pas déranger » : les alertes (sons, notifications navigateur,
+  // toasts) sont coupées, mais les notifications restent dans la boîte de
+  // réception — rien n'est perdu. Ref pour ne pas réabonner le canal realtime
+  // à chaque changement de profil.
+  const dndRef = useRef(false);
+  useEffect(() => {
+    dndRef.current = profile?.status === 'ne_pas_deranger';
+  }, [profile?.status]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -220,6 +228,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   const pushToast = useCallback(
     (t: Toast) => {
+      // Ne pas déranger : aucune alerte (ni son, ni navigateur, ni toast).
+      // La notification reste dans la boîte de réception.
+      if (dndRef.current) return;
       // Pas de toast si l'utilisateur est déjà sur la cible (ancre ignorée).
       if (t.link && window.location.pathname.startsWith(t.link.split('?')[0].split('#')[0])) return;
       setToasts((prev) => [...prev.slice(-2), t]);

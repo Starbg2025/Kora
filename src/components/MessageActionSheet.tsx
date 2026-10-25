@@ -1,5 +1,5 @@
 import type { Message, Profile } from '../lib/types';
-import { Copy, Eye, Flag, Forward, Languages, Link2, Pencil, Pin, Reply, Trash2 } from 'lucide-react';
+import { Copy, Eye, Flag, Forward, Languages, Link2, MessagesSquare, Pencil, Pin, Reply, Trash2 } from 'lucide-react';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '✅', '💀', '🙂'];
 
@@ -20,6 +20,7 @@ interface Props {
   onReport?: () => void;
   onTranslate?: () => void;
   onCopyId?: () => void;
+  onThread?: () => void;
   onClose: () => void;
 }
 
@@ -68,6 +69,7 @@ export default function MessageActionSheet(p: Props) {
         <Group>
           {p.isMe && <Row onClick={p.onEdit} icon={<Pencil size={18} />}>Modifier le message</Row>}
           <Row onClick={p.onReply} icon={<Reply size={18} />}>Répondre</Row>
+          {p.onThread && <Row onClick={p.onThread} icon={<MessagesSquare size={18} />}>Fil de discussion</Row>}
           <Row onClick={p.onForward} icon={<Forward size={18} />}>Transférer</Row>
         </Group>
 

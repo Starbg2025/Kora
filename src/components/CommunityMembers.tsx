@@ -47,6 +47,7 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
   const [timeoutMinutes, setTimeoutMinutes] = useState(60);
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [memberQuery, setMemberQuery] = useState('');
 
   // Amis acceptés du spectateur (sert au réglage de confidentialité du statut).
   useEffect(() => {
@@ -78,11 +79,20 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
     if (rb !== ra) return rb - ra;
     return (a.profiles?.display_name ?? '').localeCompare(b.profiles?.display_name ?? '');
   });
-  const onlineMembers = sorted.filter((m) => {
+  // Recherche de membres (nom d'affichage ou pseudo, insensible aux accents).
+  const query = memberQuery.trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+  const searched = query
+    ? sorted.filter((m) => {
+        const hay = `${m.profiles?.display_name ?? ''} ${m.profiles?.username ?? ''}`
+          .toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+        return hay.includes(query);
+      })
+    : sorted;
+  const onlineMembers = searched.filter((m) => {
     const s = statusOf(m, online, me, friendIds);
     return s !== 'hors_ligne' && s !== 'invisible';
   });
-  const offlineMembers = sorted.filter((m) => {
+  const offlineMembers = searched.filter((m) => {
     const s = statusOf(m, online, me, friendIds);
     return s === 'hors_ligne' || s === 'invisible';
   });
@@ -304,6 +314,18 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
         >
           <X size={16} />
         </button>
+      </div>
+      <div className="shrink-0 border-b border-line px-3 py-2">
+        <input
+          value={memberQuery}
+          onChange={(e) => setMemberQuery(e.target.value)}
+          placeholder="Rechercher un membre…"
+          aria-label="Rechercher un membre"
+          className="w-full rounded-lg bg-base px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-primary"
+        />
+        {query && searched.length === 0 && (
+          <p className="px-1 pt-2 text-xs text-muted">Aucun membre trouvé pour « {memberQuery.trim()} ».</p>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
         {renderSection('En ligne', onlineMembers)}

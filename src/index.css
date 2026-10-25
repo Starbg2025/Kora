@@ -2,17 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Palette Kora — thème sombre par défaut */
+/* Palette Kora — thème sombre par défaut, gris anthracite nuancés */
 :root,
 [data-theme='sombre'] {
-  --c-bg: 13 13 23;
-  --c-surface: 21 21 34;
-  --c-surface2: 28 28 43;
-  --c-primary: 255 106 0;
+  --c-bg: 18 18 28;
+  --c-surface: 25 25 39;
+  --c-surface2: 33 33 50;
+  --c-primary: 34 197 94;
   --c-accent: 245 158 11;
   --c-text: 244 244 248;
   --c-muted: 167 167 190;
-  --c-line: 42 42 62;
+  --c-line: 48 48 70;
   color-scheme: dark;
 }
 
@@ -20,7 +20,7 @@
   --c-bg: 246 246 250;
   --c-surface: 255 255 255;
   --c-surface2: 236 236 244;
-  --c-primary: 255 106 0;
+  --c-primary: 22 163 74;
   --c-accent: 180 83 9;
   --c-text: 22 22 34;
   --c-muted: 96 96 118;

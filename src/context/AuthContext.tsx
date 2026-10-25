@@ -52,12 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // Sécurité : si getSession() ne résout jamais (réseau), l'écran
+    // « Chargement… » ne doit pas rester bloqué indéfiniment.
+    const timer = window.setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 8000);
     sb.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       const u = data.session?.user ?? null;
       setUser(u);
       if (u) loadData(u.id).finally(() => mounted && setLoading(false));
       else setLoading(false);
+    }).catch(() => {
+      if (mounted) setLoading(false);
     });
     const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
@@ -71,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       mounted = false;
+      window.clearTimeout(timer);
       sub.subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
