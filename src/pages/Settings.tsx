@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'react-qr-code';
+import { Bell, Info, Lock, LogOut, Palette, Shield, SquarePen, User, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { useTheme, ACCENT_COLORS, type DensityChoice, type TextSizeChoice, type ThemeChoice } from '../context/ThemeContext';
 import Avatar from '../components/Avatar';
 import { isValidUsername } from '../lib/format';
+import { normalizeSocialLink } from '../lib/privacy';
 import { STATUS_LABELS, type DM, type PresenceStatus, type UserSettings } from '../lib/types';
 
 type TabId = 'compte' | 'profil' | 'apparence' | 'notifications' | 'confidentialite' | 'securite' | 'apropos';
@@ -19,14 +22,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'apropos', label: 'À propos' },
 ];
 
-const TAB_ICONS: Record<TabId, string> = {
-  compte: '👤',
-  profil: '📝',
-  apparence: '🎨',
-  notifications: '🔔',
-  confidentialite: '🔒',
-  securite: '🛡️',
-  apropos: 'ℹ️',
+const TAB_ICONS: Record<TabId, LucideIcon> = {
+  compte: User,
+  profil: SquarePen,
+  apparence: Palette,
+  notifications: Bell,
+  confidentialite: Lock,
+  securite: Shield,
+  apropos: Info,
 };
 
 const inputCls =
@@ -238,6 +241,9 @@ function ProfileTab() {
   const [bannerColor, setBannerColor] = useState(profile?.banner_color ?? '');
   const [bannerUrl, setBannerUrl] = useState<string | null>(profile?.banner_url ?? null);
   const [bannerUploading, setBannerUploading] = useState(false);
+  const [socialWebsite, setSocialWebsite] = useState((profile?.social_links as Record<string, string> | undefined)?.website ?? '');
+  const [socialX, setSocialX] = useState((profile?.social_links as Record<string, string> | undefined)?.x ?? '');
+  const [socialYoutube, setSocialYoutube] = useState((profile?.social_links as Record<string, string> | undefined)?.youtube ?? '');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -250,6 +256,10 @@ function ProfileTab() {
     setCustomStatus(profile?.custom_status ?? '');
     setBannerColor(profile?.banner_color ?? '');
     setBannerUrl(profile?.banner_url ?? null);
+    const links = (profile?.social_links ?? {}) as Record<string, string>;
+    setSocialWebsite(links.website ?? '');
+    setSocialX(links.x ?? '');
+    setSocialYoutube(links.youtube ?? '');
   }, [profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uploadAvatar = async (f: File) => {
@@ -333,17 +343,49 @@ function ProfileTab() {
         if (rpcErr) throw rpcErr;
         if (free !== true) throw new Error('Ce nom d’utilisateur est déjà pris.');
       }
-      await updateProfile({
-        username: u,
-        display_name: displayName.trim(),
-        bio: bio.trim().slice(0, 190),
-        status,
-        custom_status: customStatus.trim().slice(0, 100),
-        custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
-        banner_color: bannerColor || null,
-        banner_url: bannerUrl,
-      });
-      setNotice('Profil enregistré.');
+      const links: Record<string, string> = {};
+      const website = normalizeSocialLink(socialWebsite);
+      const x = normalizeSocialLink(socialX);
+      const youtube = normalizeSocialLink(socialYoutube);
+      if (socialWebsite.trim() && !website) throw new Error('Lien « Site web » invalide.');
+      if (socialX.trim() && !x) throw new Error('Lien « X » invalide.');
+      if (socialYoutube.trim() && !youtube) throw new Error('Lien « YouTube » invalide.');
+      if (website) links.website = website;
+      if (x) links.x = x;
+      if (youtube) links.youtube = youtube;
+      try {
+        await updateProfile({
+          username: u,
+          display_name: displayName.trim(),
+          bio: bio.trim().slice(0, 190),
+          status,
+          custom_status: customStatus.trim().slice(0, 100),
+          custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
+          banner_color: bannerColor || null,
+          banner_url: bannerUrl,
+          social_links: links,
+        });
+        setNotice('Profil enregistré.');
+      } catch (saveErr) {
+        // Colonnes social_links / banner_url absentes tant que les migrations
+        // 20261026_privacy_social / 20261025_profile_media ne sont pas
+        // exécutées : on enregistre le reste au lieu d'échouer entièrement.
+        const msg = saveErr instanceof Error ? saveErr.message : '';
+        if (msg.includes('social_links') || msg.includes('banner_url')) {
+          await updateProfile({
+            username: u,
+            display_name: displayName.trim(),
+            bio: bio.trim().slice(0, 190),
+            status,
+            custom_status: customStatus.trim().slice(0, 100),
+            custom_status_expires_at: customStatus.trim() ? durationToExpires(duration) : null,
+            banner_color: bannerColor || null,
+          });
+          setNotice('Profil enregistré, sauf les liens sociaux et la bannière image (migrations SQL en attente — voir À propos).');
+        } else {
+          throw saveErr;
+        }
+      }
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Enregistrement impossible.');
     } finally {
@@ -410,7 +452,7 @@ function ProfileTab() {
             type="button"
             onClick={() => setBannerColor('')}
             title="Bannière par défaut"
-            className={`h-9 w-9 rounded-full bg-gradient-to-br from-primary via-[#a855f7] to-accent ${bannerColor === '' ? 'ring-2 ring-primary ring-offset-2 ring-offset-base' : 'opacity-70 hover:opacity-100'}`}
+            className={`h-9 w-9 rounded-full bg-surface2 border border-line ${bannerColor === '' ? 'ring-2 ring-primary ring-offset-2 ring-offset-base' : 'opacity-70 hover:opacity-100'}`}
           />
           {['#7C3AED', '#3B82F6', '#14B8A6', '#22C55E', '#F59E0B', '#EC4899', '#EF4444', '#6B7280'].map((c) => (
             <button
@@ -446,6 +488,37 @@ function ProfileTab() {
           )}
         </div>
         <p className="mt-1 text-xs text-muted">PNG, JPG, WebP ou GIF animé, 5 Mo max. L’image remplace la couleur ; la couleur reste le repli.</p>
+      </div>
+      <div className="space-y-2">
+        <span className="block text-sm font-medium">Liens sociaux</span>
+        <p className="-mt-1 text-xs text-muted">Affichés sur ta fiche de profil. Laisse vide pour ne rien afficher.</p>
+        <input value={socialWebsite} onChange={(e) => setSocialWebsite(e.target.value)} placeholder="Site web (ex. monsite.com)" className={inputCls} inputMode="url" />
+        <input value={socialX} onChange={(e) => setSocialX(e.target.value)} placeholder="X (ex. x.com/tonpseudo)" className={inputCls} inputMode="url" />
+        <input value={socialYoutube} onChange={(e) => setSocialYoutube(e.target.value)} placeholder="YouTube (ex. youtube.com/@tonpseudo)" className={inputCls} inputMode="url" />
+      </div>
+      <div>
+        <span className="mb-2 block text-sm font-medium">Aperçu du profil</span>
+        <div className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="h-20 overflow-hidden" style={bannerUrl ? undefined : { backgroundColor: bannerColor || undefined }}>
+            {bannerUrl ? (
+              <img src={bannerUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              !bannerColor && <div className="h-full w-full bg-primary/30" />
+            )}
+          </div>
+          <div className="flex items-start gap-3 p-4">
+            <Avatar profile={{ ...profile, display_name: displayName || profile?.display_name, username: username || profile?.username }} size={56} />
+            <div className="min-w-0">
+              <p className="truncate font-bold">{displayName || username || 'Ton nom'}</p>
+              <p className="truncate text-xs text-muted">@{username || 'tonpseudo'}</p>
+              {bio && <p className="mt-1 line-clamp-2 text-sm text-muted">{bio}</p>}
+              {customStatus && <p className="mt-1 truncate text-xs text-muted">{customStatus}</p>}
+            </div>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          Les vidéos de profil ne sont pas prises en charge sur Kora : seuls les GIF animés jouent en animé (avatar et bannière).
+        </p>
       </div>
       {notice && <p className="rounded-xl bg-surface2 px-4 py-3 text-sm">{notice}</p>}
       <button disabled={busy} className="rounded-xl bg-primary px-6 py-2.5 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50">
@@ -486,7 +559,7 @@ function AppearanceTab() {
       // Vérifie que la sauvegarde a bien persisté en relisant
       await saveSettings({});
     } catch {
-      setSqlNotice('Option indisponible pour le moment : exécute la migration supabase/migrations/20261024_settings_notifications.sql puis recharge.');
+      setSqlNotice('Option indisponible pour le moment : recharge la page et réessaie.');
     }
   };
 
@@ -497,7 +570,7 @@ function AppearanceTab() {
         <div className="space-y-2">
           {themes.map((t) => (
             <label key={t.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 ${theme === t.id ? 'border-primary bg-primary/10' : 'border-line'}`}>
-              <input type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} className="h-4 w-4 accent-[#7C3AED]" />
+              <input type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} className="h-4 w-4 accent-primary" />
               <div>
                 <p className="text-sm font-semibold">{t.label}</p>
                 <p className="text-xs text-muted">{t.desc}</p>
@@ -531,7 +604,7 @@ function AppearanceTab() {
         <div className="space-y-2">
           {sizes.map((s) => (
             <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 ${textSize === s.id ? 'border-primary bg-primary/10' : 'border-line'}`}>
-              <input type="radio" name="textsize" checked={textSize === s.id} onChange={() => guardSql(async () => setTextSize(s.id))} className="h-4 w-4 accent-[#7C3AED]" />
+              <input type="radio" name="textsize" checked={textSize === s.id} onChange={() => guardSql(async () => setTextSize(s.id))} className="h-4 w-4 accent-primary" />
               <div>
                 <p className="text-sm font-semibold">{s.label}</p>
                 <p className="text-xs text-muted">{s.desc}</p>
@@ -562,7 +635,7 @@ function AppearanceTab() {
         <div className="space-y-2">
           {densities.map((d) => (
             <label key={d.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 ${density === d.id ? 'border-primary bg-primary/10' : 'border-line'}`}>
-              <input type="radio" name="density" checked={density === d.id} onChange={() => setDensity(d.id)} className="h-4 w-4 accent-[#7C3AED]" />
+              <input type="radio" name="density" checked={density === d.id} onChange={() => setDensity(d.id)} className="h-4 w-4 accent-primary" />
               <div>
                 <p className="text-sm font-semibold">{d.label}</p>
                 <p className="text-xs text-muted">{d.desc}</p>
@@ -612,7 +685,9 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: () => void; la
 
 function NotificationsTab() {
   const { sb, settings, saveSettings } = useAuth();
+  const { mutedCommunities, toggleCommunityMute, soundEnabled, setSoundEnabled, browserEnabled, setBrowserEnabled } = useNotifications();
   const [names, setNames] = useState<Record<string, string>>({});
+  const [communityNames, setCommunityNames] = useState<Record<string, string>>({});
   const [sqlNotice, setSqlNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -629,6 +704,19 @@ function NotificationsTab() {
     });
   }, [sb, settings?.dm_mute]);
 
+  useEffect(() => {
+    const ids = [...mutedCommunities];
+    if (ids.length === 0) {
+      setCommunityNames({});
+      return;
+    }
+    sb.from('communities').select('id, name').in('id', ids).then(({ data }) => {
+      const map: Record<string, string> = {};
+      for (const c of (data ?? []) as { id: string; name: string }[]) map[c.id] = c.name;
+      setCommunityNames(map);
+    });
+  }, [sb, mutedCommunities]);
+
   const unmute = async (id: string) => {
     if (!settings) return;
     await saveSettings({ dm_mute: settings.dm_mute.filter((x) => x !== id) });
@@ -641,7 +729,7 @@ function NotificationsTab() {
     try {
       await saveSettings({ [key]: !settings[key] });
     } catch {
-      setSqlNotice('Option indisponible pour le moment : exécute la migration supabase/migrations/20261024_settings_notifications.sql puis recharge.');
+      setSqlNotice('Option indisponible pour le moment : recharge la page et réessaie.');
     } finally {
       setBusy(false);
     }
@@ -667,6 +755,26 @@ function NotificationsTab() {
         {sqlNotice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">{sqlNotice}</p>}
       </div>
       <div>
+        <h3 className="mb-1 font-bold">Sons et navigateur</h3>
+        <p className="mb-4 text-sm text-muted">Réglages propres à cet appareil (non synchronisés).</p>
+        <div className="space-y-2">
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-line px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Son à l’arrivée d’une notification</p>
+              <p className="text-xs text-muted">Petit bip quand une notification apparaît dans Kora.</p>
+            </div>
+            <Toggle on={soundEnabled} onChange={() => setSoundEnabled(!soundEnabled)} label="Son des notifications" />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-line px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Notifications du navigateur</p>
+              <p className="text-xs text-muted">Affiche une notification système quand l’onglet Kora est en arrière-plan (autorisation demandée au navigateur).</p>
+            </div>
+            <Toggle on={browserEnabled} onChange={() => setBrowserEnabled(!browserEnabled)} label="Notifications du navigateur" />
+          </label>
+        </div>
+      </div>
+      <div>
         <h3 className="mb-1 font-bold">Conversations en sourdine</h3>
         <p className="mb-4 text-sm text-muted">
           Tu peux couper les notifications d’une conversation depuis son en-tête (bouton « Notifications »).
@@ -686,6 +794,26 @@ function NotificationsTab() {
           </div>
         )}
       </div>
+      <div>
+        <h3 className="mb-1 font-bold">Communautés en sourdine</h3>
+        <p className="mb-4 text-sm text-muted">
+          Les mentions d’une communauté en sourdine ne créent pas de notification. Le réglage se change aussi depuis les paramètres de la communauté.
+        </p>
+        {mutedCommunities.size === 0 ? (
+          <p className="rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">Aucune communauté en sourdine.</p>
+        ) : (
+          <div className="space-y-2">
+            {[...mutedCommunities].map((id) => (
+              <div key={id} className="flex items-center justify-between rounded-xl bg-surface2 px-4 py-2.5">
+                <span className="text-sm font-medium">{communityNames[id] ?? 'Communauté'}</span>
+                <button onClick={() => toggleCommunityMute(id)} className="rounded-lg px-3 py-1 text-sm text-primary hover:bg-surface">
+                  Réactiver
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -694,11 +822,14 @@ function NotificationsTab() {
 /* Onglet Confidentialité                                              */
 /* ------------------------------------------------------------------ */
 function PrivacyTab() {
-  const { settings, saveSettings } = useAuth();
+  const { profile, settings, saveSettings, updateProfile } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
   const open = settings?.friend_requests_open ?? true;
+  const privacyDms = profile?.privacy_dms ?? 'friends';
+  const privacyStatus = profile?.privacy_status ?? 'everyone';
 
-  const toggle = async () => {
+  const toggleRequests = async () => {
     setBusy(true);
     try {
       await saveSettings({ friend_requests_open: !open });
@@ -707,39 +838,112 @@ function PrivacyTab() {
     }
   };
 
+  const setPrivacyDms = async (v: 'friends' | 'nobody') => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await updateProfile({ privacy_dms: v });
+    } catch {
+      setNotice('Enregistrement impossible pour le moment.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setPrivacyStatus = async (v: 'everyone' | 'friends' | 'nobody') => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await updateProfile({ privacy_status: v });
+    } catch {
+      setNotice('Enregistrement impossible pour le moment.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="max-w-xl">
-      <h3 className="mb-1 font-bold">Demandes d’ami</h3>
-      <p className="mb-4 text-sm text-muted">Choisis qui peut t’envoyer une demande d’ami en te cherchant par nom d’utilisateur.</p>
-      <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
-        <span className="text-sm font-medium">Tout le monde peut m’envoyer une demande</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={open}
-          disabled={busy}
-          onClick={toggle}
-          className={`relative h-6 w-11 rounded-full transition-colors ${open ? 'bg-primary' : 'bg-line'}`}
-        >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${open ? 'left-[22px]' : 'left-0.5'}`} />
-        </button>
-      </label>
-      {!open && (
-        <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">
-          Seules les personnes que tu ajoutes toi-même pourront devenir tes amies.
+    <div className="max-w-xl space-y-8">
+      <div>
+        <h3 className="mb-1 font-bold">Demandes d’ami</h3>
+        <p className="mb-4 text-sm text-muted">Choisis qui peut t’envoyer une demande d’ami en te cherchant par nom d’utilisateur. Ce réglage est vérifié côté serveur : une demande vers un compte fermé est refusée.</p>
+        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
+          <span className="text-sm font-medium">Tout le monde peut m’envoyer une demande</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={open}
+            disabled={busy}
+            onClick={toggleRequests}
+            className={`relative h-6 w-11 rounded-full transition-colors ${open ? 'bg-primary' : 'bg-line'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${open ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </label>
+        {!open && (
+          <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">
+            Seules les personnes que tu ajoutes toi-même pourront devenir tes amies.
+          </p>
+        )}
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Messages privés</h3>
+        <p className="mb-4 text-sm text-muted">
+          Sur Kora, les messages privés 1:1 exigent déjà d’être amis (vérifié côté serveur). Ce réglage permet en plus de couper
+          complètement tes messages privés, même pour tes amis.
         </p>
-      )}
-      <h3 className="mb-1 mt-8 font-bold">Comptes bloqués</h3>
-      <p className="mb-4 text-sm text-muted">Les personnes bloquées ne peuvent plus te contacter ni te voir en ligne.</p>
-      <Link
-        to="/app/amis?onglet=bloques"
-        className="flex items-center justify-between rounded-xl border border-line px-4 py-3 text-sm font-medium hover:bg-surface2"
-      >
-        <span>Gérer mes comptes bloqués</span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted">
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-      </Link>
+        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-4 py-3">
+          <span className="text-sm font-medium">Autoriser les messages privés de mes amis</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={privacyDms === 'friends'}
+            disabled={busy}
+            onClick={() => setPrivacyDms(privacyDms === 'friends' ? 'nobody' : 'friends')}
+            className={`relative h-6 w-11 rounded-full transition-colors ${privacyDms === 'friends' ? 'bg-primary' : 'bg-line'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${privacyDms === 'friends' ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </label>
+        {privacyDms === 'nobody' && (
+          <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">
+            Personne ne peut ouvrir une nouvelle discussion privée avec toi pour le moment.
+          </p>
+        )}
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Statut en ligne</h3>
+        <p className="mb-4 text-sm text-muted">Choisis qui voit ton statut de présence (en ligne, inactif, ne pas déranger) dans les listes et les profils.</p>
+        <div className="space-y-2">
+          {([
+            ['everyone', 'Tout le monde', 'Ton statut est visible par tous les membres.'],
+            ['friends', 'Amis seulement', 'Seuls tes amis voient ton statut ; les autres te voient hors ligne.'],
+            ['nobody', 'Personne', 'Tu apparais hors ligne pour tout le monde (sauf toi).'],
+          ] as const).map(([id, label, desc]) => (
+            <label key={id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 ${privacyStatus === id ? 'border-primary bg-primary/10' : 'border-line'}`}>
+              <input type="radio" name="privacy-status" checked={privacyStatus === id} onChange={() => setPrivacyStatus(id)} className="h-4 w-4 accent-primary" />
+              <div>
+                <p className="text-sm font-semibold">{label}</p>
+                <p className="text-xs text-muted">{desc}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+        {notice && <p className="mt-3 rounded-xl bg-surface2 px-4 py-3 text-sm text-muted">{notice}</p>}
+      </div>
+      <div>
+        <h3 className="mb-1 font-bold">Comptes bloqués</h3>
+        <p className="mb-4 text-sm text-muted">Les personnes bloquées ne peuvent plus te contacter ni te voir en ligne.</p>
+        <Link
+          to="/app/amis?onglet=bloques"
+          className="flex items-center justify-between rounded-xl border border-line px-4 py-3 text-sm font-medium hover:bg-surface2"
+        >
+          <span>Gérer mes comptes bloqués</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -901,10 +1105,12 @@ function SecurityTab() {
 function AboutTab() {
   return (
     <div className="max-w-xl space-y-4">
-      <h3 className="font-bold">Kora — version 0.2.0 (Phases 1 + 2)</h3>
+      <h3 className="font-bold">Kora — version 0.3.0</h3>
       <p className="text-sm text-muted">
-        Rassemble ta communauté. Parle, joue, crée. Comptes, amis, messages privés en temps réel, profils,
-        communautés avec salons, rôles et invitations, sondages, réactions et centre de notifications.
+        Rassemble ta communauté. Parle, joue, crée. Comptes, amis, messages privés et salons en temps réel,
+        profils avec bannières animées, communautés avec salons textuels et vocaux, rôles, modération,
+        invitations, sondages, réactions, émojis et autocollants personnalisés, appels audio/vidéo et
+        partage d’écran, recherche globale et centre de notifications. Tout est gratuit, sans abonnement.
       </p>
       <nav className="flex flex-col gap-1 text-sm">
         <Link to="/confidentialite" className="rounded-lg px-3 py-2 text-primary hover:bg-surface2">Politique de confidentialité</Link>
@@ -937,30 +1143,31 @@ export default function Settings() {
       <aside className={`${mobileOpen ? 'hidden md:block' : 'block'} w-full shrink-0 border-r border-line bg-base p-4 md:w-64 md:bg-surface`}>
         <h1 className="px-2 py-2 text-lg font-extrabold">Paramètres</h1>
         <nav className="mt-2 space-y-1 md:space-y-1">
-          {TABS.map((t, i) => (
-            <button
-              key={t.id}
-              onClick={() => select(t.id)}
-              className={`flex w-full items-center gap-3 px-3 py-3 text-left text-[15px] md:rounded-xl md:py-2 md:text-sm md:font-medium ${
-                tab === t.id ? 'font-semibold md:bg-surface2 md:text-ink' : 'text-ink md:font-medium md:text-muted md:hover:bg-surface2/60 md:hover:text-ink'
-              } ${i > 0 ? 'border-t border-line/60 md:border-0' : ''}`}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">
-                {TAB_ICONS[t.id]}
-              </span>
-              <span className="flex-1">{t.label}</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
-            </button>
-          ))}
+          {TABS.map((t, i) => {
+            const Icon = TAB_ICONS[t.id];
+            return (
+              <button
+                key={t.id}
+                onClick={() => select(t.id)}
+                className={`flex w-full items-center gap-3 px-3 py-3 text-left text-[15px] md:rounded-lg md:py-2 md:text-sm md:font-medium ${
+                  tab === t.id ? 'font-semibold md:bg-surface2 md:text-ink' : 'text-ink md:font-medium md:text-muted md:hover:bg-surface2/60 md:hover:text-ink'
+                } ${i > 0 ? 'border-t border-line/60 md:border-0' : ''}`}
+              >
+                <Icon size={18} className="shrink-0 text-muted" />
+                <span className="flex-1">{t.label}</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+            );
+          })}
         </nav>
         {profile?.is_site_admin && (
           <Link
             to="/app/admin"
-            className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-primary hover:bg-surface2/60 md:mt-2 md:py-2 md:text-sm md:font-medium"
+            className="mt-4 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[15px] font-semibold text-primary hover:bg-surface2/60 md:mt-2 md:py-2 md:text-sm md:font-medium"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">🛡️</span>
+            <Shield size={18} className="shrink-0" />
             <span className="flex-1">Panneau d’administration</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
               <path d="m9 18 6-6-6-6" />
@@ -969,9 +1176,9 @@ export default function Settings() {
         )}
         <button
           onClick={signOut}
-          className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold text-danger hover:bg-surface2/60 md:mt-6 md:py-2 md:text-sm md:font-medium"
+          className="mt-4 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[15px] font-semibold text-danger hover:bg-surface2/60 md:mt-6 md:py-2 md:text-sm md:font-medium"
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface2 text-lg md:hidden">🚪</span>
+          <LogOut size={18} className="shrink-0" />
           <span className="flex-1">Se déconnecter</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted md:hidden">
             <path d="m9 18 6-6-6-6" />
@@ -989,7 +1196,7 @@ export default function Settings() {
           </svg>
           Paramètres
         </button>
-        <h2 className="mb-6 text-xl font-extrabold">{TABS.find((t) => t.id === tab)?.label}</h2>
+        <h2 className="mb-6 text-lg font-bold">{TABS.find((t) => t.id === tab)?.label}</h2>
         {tab === 'compte' && <AccountTab />}
         {tab === 'profil' && <ProfileTab />}
         {tab === 'apparence' && <AppearanceTab />}

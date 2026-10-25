@@ -62,7 +62,7 @@ export default function InvitePage() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-base px-4 py-8 text-ink">
-      <div className="w-full max-w-md rounded-3xl bg-surface p-8 text-center shadow-xl">
+      <div className="w-full max-w-md rounded-xl bg-surface p-8 text-center shadow-xl">
         <div className="mb-4 flex justify-center">
           <Logo size={48} />
         </div>
@@ -85,9 +85,9 @@ export default function InvitePage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-muted">Invitation à rejoindre</p>
               <div className="mt-3 flex flex-col items-center gap-2">
                 {info.icon_url ? (
-                  <img src={info.icon_url} alt={info.name} className="h-20 w-20 rounded-3xl object-cover" />
+                  <img src={info.icon_url} alt={info.name} className="h-20 w-20 rounded-xl object-cover" />
                 ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-primary/20 text-4xl font-extrabold text-primary">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-primary/20 text-4xl font-extrabold text-primary">
                     {info.name.trim()[0]?.toUpperCase() ?? '?'}
                   </div>
                 )}

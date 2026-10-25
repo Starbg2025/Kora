@@ -21,6 +21,7 @@ import VerifiedBadge from './VerifiedBadge';
 import type { CallLog } from '../lib/types';
 import PollModal from './PollModal';
 import PollCard from './PollCard';
+import { BarChart3, Image, Paperclip, Phone, Pin, Users, Video, X } from 'lucide-react';
 
 interface Member extends DMMemberRow {
   profiles: Profile | null;
@@ -1085,7 +1086,7 @@ export default function Conversation() {
               title="Membres et infos"
               aria-label="Membres et infos"
             >
-              👥
+              <Users size={18} />
             </button>
             <div className="relative hidden shrink-0 md:block">
               <button
@@ -1150,7 +1151,7 @@ export default function Conversation() {
                   autoFocus
                 />
                 {searchQ && (
-                  <button type="button" onClick={() => { setSearchQ(''); setSearchResults([]); }} className="text-muted hover:text-ink" aria-label="Effacer">✕</button>
+                  <button type="button" onClick={() => { setSearchQ(''); setSearchResults([]); }} className="text-muted hover:text-ink" aria-label="Effacer"><X size={16} /></button>
                 )}
               </form>
               {searching && <p className="mt-2 px-1 text-sm text-muted">Recherche…</p>}
@@ -1201,7 +1202,7 @@ export default function Conversation() {
                       </div>
                     )}
                     <div className="my-2 flex items-center justify-center gap-2 rounded-xl bg-surface2/60 px-3 py-2 text-center text-xs text-muted">
-                      <span>{c.kind === 'video' ? '📹' : '📞'}</span>
+                      <span>{c.kind === 'video' ? <Video size={14} /> : <Phone size={14} />}</span>
                       <span>{callLabel(c)}</span>
                     </div>
                   </div>
@@ -1267,7 +1268,7 @@ export default function Conversation() {
                             <span>{author?.display_name || author?.username || 'Inconnu'}</span>
                             {author?.is_verified && <VerifiedBadge size={14} />}
                           </button>
-                          {isPinned && <span title="Message épinglé">📌</span>}
+                          {isPinned && <Pin size={14} className="text-muted" />}
                           <span className="text-[11px] text-muted" title={formatFull(m.created_at)}>
                             {formatTime(m.created_at)}
                           </span>
@@ -1381,15 +1382,15 @@ export default function Conversation() {
                   <p className="truncate text-muted">
                     Réponse à <strong className="text-ink">{profilesById.get(replyTo.author_id)?.display_name || 'Inconnu'}</strong> : {replyTo.content.slice(0, 80) || (replyTo.attachment_name ?? '')}
                   </p>
-                  <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse">✕</button>
+                  <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse"><X size={16} /></button>
                 </div>
               )}
               {file && (
                 <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
                   <p className="truncate">
-                    {isAudioName(file.name) ? '🎤 Message vocal prêt' : 'Fichier'} : <strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} Ko)
+                    {isAudioName(file.name) ? 'Message vocal prêt' : 'Fichier'} : <strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} Ko)
                   </p>
-                  <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier">✕</button>
+                  <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier"><X size={16} /></button>
                 </div>
               )}
               <div className="relative flex items-center gap-1 rounded-2xl bg-surface2 px-2 py-1.5">
@@ -1401,19 +1402,19 @@ export default function Conversation() {
                         onClick={() => { setShowAttachMenu(false); photoInput.current?.click(); }}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                       >
-                        <span className="text-lg">🖼️</span> Photos
+                        <Image size={16} /> Photos
                       </button>
                       <button
                         onClick={() => { setShowAttachMenu(false); setShowPollModal(true); }}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                       >
-                        <span className="text-lg">📊</span> Sondage
+                        <BarChart3 size={16} /> Sondage
                       </button>
                       <button
                         onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                       >
-                        <span className="text-lg">📎</span> Fichiers
+                        <Paperclip size={16} /> Fichiers
                       </button>
                     </div>
                   </>
@@ -1425,7 +1426,7 @@ export default function Conversation() {
                   aria-label={showAttachMenu ? 'Fermer le menu' : 'Joindre un fichier ou créer un sondage'}
                 >
                   {showAttachMenu ? (
-                    <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none">✕</span>
+                    <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none"><X size={16} /></span>
                   ) : (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                       <path d="M12 5v14 M5 12h14" />
@@ -1512,7 +1513,7 @@ export default function Conversation() {
               <p className="truncate font-bold">{headerTitle}</p>
               <p className="truncate text-xs text-muted">{headerSub}</p>
             </div>
-            <button onClick={() => setShowPanel(false)} className="hidden rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:block" aria-label="Fermer">✕</button>
+            <button onClick={() => setShowPanel(false)} className="hidden rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:block" aria-label="Fermer"><X size={16} /></button>
           </div>
           <div className="flex border-b border-line">
             {(
@@ -1635,7 +1636,7 @@ export default function Conversation() {
                           onClick={() => { setShowPanel(false); jumpTo(m.id); }}
                           className="block w-full rounded-xl bg-surface2 p-3 text-left hover:bg-line"
                         >
-                          <p className="text-xs font-bold text-primary">📌 {a?.display_name || a?.username || 'Inconnu'}</p>
+                          <p className="flex items-center gap-1 text-xs font-bold text-primary"><Pin size={12} /> {a?.display_name || a?.username || 'Inconnu'}</p>
                           <p className="mt-1 line-clamp-3 text-sm">{m.content || (m.attachment_name ?? '')}</p>
                         </button>
                       );
@@ -1729,6 +1730,7 @@ export default function Conversation() {
           friendship={profileTarget.id === friend?.id ? friendship : null}
           status={online[profileTarget.id]?.status ?? 'hors_ligne'}
           onMessage={() => openMessageTo(profileTarget)}
+          onCall={() => dmId && startCall(dmId, profileTarget, 'audio')}
           onClose={() => setShowProfile(false)}
         />
       )}

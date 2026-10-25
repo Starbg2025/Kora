@@ -6,6 +6,7 @@ import { useFriends, type FriendEntry } from '../hooks/useFriends';
 import Avatar from '../components/Avatar';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
+import { effectiveStatus } from '../lib/privacy';
 import { STATUS_LABELS, type Profile } from '../lib/types';
 import { openDirectDM } from '../lib/dm';
 
@@ -48,7 +49,7 @@ export default function Friends() {
   const me = user?.id ?? '';
   const friends = entries.filter((e) => e.friendship.status === 'accepted');
   const onlineFriends = friends.filter((e) => {
-    const st = online[e.profile.id]?.status ?? 'hors_ligne';
+    const st = effectiveStatus(e.profile, me, new Set([e.profile.id]), online[e.profile.id]?.status ?? null);
     return st !== 'hors_ligne' && st !== 'invisible';
   });
   const received = entries.filter((e) => e.friendship.status === 'pending' && e.friendship.addressee_id === me);
@@ -89,8 +90,11 @@ export default function Friends() {
       if (error) throw error;
       setNotice(`Demande envoyée à ${p.username}.`);
       await reload();
-    } catch {
-      setNotice(`${p.username} n’accepte pas les demandes d’ami pour le moment.`);
+    } catch (err) {
+      // 23505 = paire déjà existante (demande déjà envoyée ou amitié existante),
+      // les autres erreurs sont le refus côté serveur (demandes fermées) ou RLS.
+      const code = (err as { code?: string } | null)?.code;
+      setNotice(code === '23505' ? `Une demande vers ${p.username} existe déjà.` : `${p.username} n’accepte pas les demandes d’ami pour le moment.`);
     } finally {
       setBusyId(null);
     }
@@ -162,7 +166,9 @@ export default function Friends() {
 
   const renderRow = (e: FriendEntry) => {
     const p = e.profile;
-    const st = online[p.id]?.status ?? 'hors_ligne';
+    const isFriend = e.friendship.status === 'accepted';
+    const raw = effectiveStatus(p, me, isFriend ? new Set([p.id]) : new Set<string>(), online[p.id]?.status ?? null);
+    const st = raw === 'invisible' ? 'hors_ligne' : raw;
     return (
       <div key={e.friendship.id} className="dm-item flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 hover:bg-surface2">
         <Avatar profile={p} size={44} status={st} showStatus />

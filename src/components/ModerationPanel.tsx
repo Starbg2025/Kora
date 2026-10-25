@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from './Avatar';
 import { formatFull } from '../lib/format';
+import { X } from 'lucide-react';
 import {
   AUDIT_ACTION_LABELS,
   REPORT_REASON_LABELS,
@@ -162,7 +163,7 @@ export default function ModerationPanel({ communityId, communityName, onClose, f
             <p className="text-xs text-muted">{communityName}</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink" aria-label="Fermer">
-            ✕
+            <X size={16} />
           </button>
         </div>
 

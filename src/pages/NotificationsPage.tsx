@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { Trash2 } from 'lucide-react';
 import { useNotifications, TYPE_ICONS, TYPE_LABELS } from '../context/NotificationsContext';
 import EmptyState from '../components/EmptyState';
 
@@ -12,7 +13,7 @@ function timeAgo(iso: string): string {
 
 /** Centre de notifications : liste, marquage lu, navigation vers le contenu. */
 export default function NotificationsPage() {
-  const { notifications, unreadCount, loading, markAsRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, loading, markAsRead, markAllRead, deleteNotification } = useNotifications();
   const navigate = useNavigate();
 
   const open = async (id: string, link: string | null) => {
@@ -23,9 +24,9 @@ export default function NotificationsPage() {
   return (
     <div className="mx-auto h-full max-w-2xl overflow-y-auto p-4 md:p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-extrabold">Notifications</h1>
+        <h1 className="text-lg font-bold">Notifications</h1>
         {unreadCount > 0 && (
-          <button onClick={markAllRead} className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold text-primary hover:bg-line">
+          <button onClick={markAllRead} className="rounded-lg bg-surface2 px-4 py-2 text-sm font-semibold text-primary hover:bg-line">
             Tout marquer comme lu
           </button>
         )}
@@ -39,29 +40,41 @@ export default function NotificationsPage() {
         />
       ) : (
         <div className="space-y-2">
-          {notifications.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => open(n.id, n.link)}
-              className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-colors hover:bg-surface2 ${
-                n.is_read ? 'border-transparent' : 'border-primary/30 bg-primary/5'
-              }`}
-            >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface2 text-xl">
-                {TYPE_ICONS[n.type]}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="truncate text-sm font-bold">{n.title}</span>
-                  {!n.is_read && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Non lue" />}
-                </span>
-                {n.body && <span className="mt-0.5 block truncate text-sm text-muted">{n.body}</span>}
-                <span className="mt-1 block text-xs text-muted">
-                  {TYPE_LABELS[n.type]} · {timeAgo(n.created_at)}
-                </span>
-              </span>
-            </button>
-          ))}
+          {notifications.map((n) => {
+            const Icon = TYPE_ICONS[n.type];
+            return (
+              <div
+                key={n.id}
+                className={`flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-surface2 ${
+                  n.is_read ? 'border-transparent' : 'border-primary/30 bg-primary/5'
+                }`}
+              >
+                <button onClick={() => open(n.id, n.link)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface2 text-muted">
+                    <Icon size={20} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-bold">{n.title}</span>
+                      {!n.is_read && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Non lue" />}
+                    </span>
+                    {n.body && <span className="mt-0.5 block truncate text-sm text-muted">{n.body}</span>}
+                    <span className="mt-1 block text-xs text-muted">
+                      {TYPE_LABELS[n.type]} · {timeAgo(n.created_at)}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => deleteNotification(n.id)}
+                  className="shrink-0 rounded-lg p-2 text-muted hover:bg-surface hover:text-danger"
+                  title="Supprimer cette notification"
+                  aria-label="Supprimer cette notification"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

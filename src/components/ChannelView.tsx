@@ -11,6 +11,7 @@ import Modal from './Modal';
 import ReportModal from './ReportModal';
 import EmptyState from './EmptyState';
 import { formatDay, formatFull, formatTime } from '../lib/format';
+import { Copy, Flag, Image, Link2, Menu, Paperclip, Pencil, Pin, Reply, Trash2, Users, X } from 'lucide-react';
 import {
   ROLE_COLORS,
   type Channel,
@@ -83,7 +84,7 @@ function AttachmentView({ path, name }: { path: string; name: string }) {
 /** Vue d'un salon textuel : messages temps réel, réactions, épinglés, pièces jointes. */
 export default function ChannelView({ communityId, channel, myRole, members, onToggleMembers, onToggleChannels, onBack }: Props) {
   const { sb, user, profile } = useAuth();
-  const { notify } = useNotifications();
+  const { notify, mutedCommunities } = useNotifications();
   const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
@@ -248,8 +249,16 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           return next;
         });
         if (nearBottom()) requestAnimationFrame(() => scrollToBottom());
-        // Déclencheur : mention @pseudo → notification pour le destinataire
-        if (m.author_id !== me && profile?.username && containsMention(m.content, profile.username)) {
+        // Déclencheur : mention @pseudo → notification, sauf si le salon est
+        // regardé dans un onglet visible (on lit déjà le message) ou si la
+        // communauté est en sourdine.
+        if (
+          m.author_id !== me &&
+          profile?.username &&
+          containsMention(m.content, profile.username) &&
+          !mutedCommunities.has(communityId) &&
+          document.hidden
+        ) {
           sb.from('profiles')
             .select('display_name, username')
             .eq('id', m.author_id)
@@ -591,7 +600,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           title="Salons"
           aria-label="Afficher ou masquer les salons"
         >
-          ☰
+          <Menu size={18} />
         </button>
         <span className="text-xl text-muted">#</span>
         <div className="min-w-0 flex-1">
@@ -604,7 +613,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           title="Messages épinglés"
           aria-label="Messages épinglés"
         >
-          📌
+          <Pin size={16} />
           {pins.length > 0 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
               {pins.length}
@@ -617,7 +626,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           title="Membres"
           aria-label="Afficher les membres"
         >
-          👥
+          <Users size={18} />
         </button>
       </header>
 
@@ -688,7 +697,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                             {author?.is_verified && <VerifiedBadge size={14} />}
                           </span>
                           <span className="text-xs text-muted">{formatTime(m.created_at)}</span>
-                          {pinnedIds.has(m.id) && <span className="text-xs" title="Épinglé">📌</span>}
+                          {pinnedIds.has(m.id) && <span className="text-xs" title="Épinglé"><Pin size={16} /></span>}
                         </p>
                       )}
                       {replied && (
@@ -776,13 +785,13 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             <p className="truncate">
               Réponse à <strong>{profilesById.get(replyTo.author_id)?.display_name || 'Inconnu'}</strong> : {replyTo.content.slice(0, 80) || (replyTo.attachment_name ?? '')}
             </p>
-            <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse">✕</button>
+            <button onClick={() => setReplyTo(null)} className="ml-2 text-muted hover:text-ink" aria-label="Annuler la réponse"><X size={16} /></button>
           </div>
         )}
         {file && (
           <div className="mb-2 flex items-center justify-between rounded-xl bg-surface2 px-3 py-2 text-xs">
             <p className="truncate">Fichier : <strong>{file.name}</strong> ({(file.size / 1024).toFixed(0)} Ko)</p>
-            <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier">✕</button>
+            <button onClick={() => setFile(null)} className="ml-2 text-muted hover:text-ink" aria-label="Retirer le fichier"><X size={16} /></button>
           </div>
         )}
         {sendError && <p className="mb-2 rounded-xl bg-danger/10 px-3 py-2 text-xs text-danger">{sendError}</p>}
@@ -801,13 +810,13 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                   onClick={() => { setShowAttachMenu(false); photoInput.current?.click(); }}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                 >
-                  <span className="text-lg">🖼️</span> Photos
+                  <Image size={16} /> Photos
                 </button>
                 <button
                   onClick={() => { setShowAttachMenu(false); fileInput.current?.click(); }}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                 >
-                  <span className="text-lg">📎</span> Fichiers
+                  <Paperclip size={16} /> Fichiers
                 </button>
               </div>
             </>
@@ -819,7 +828,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             aria-label={showAttachMenu ? 'Fermer le menu' : 'Joindre un fichier'}
           >
             {showAttachMenu ? (
-              <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none">✕</span>
+              <span className="flex h-[18px] w-[18px] items-center justify-center text-lg font-bold leading-none"><X size={16} /></span>
             ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d="M12 5v14 M5 12h14" />
@@ -918,7 +927,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       {sheetMsg && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Actions du message">
           <button aria-label="Fermer" onClick={() => setSheetMsg(null)} className="absolute inset-0 bg-black/60" />
-          <div className="relative max-h-[92dvh] w-full space-y-3 overflow-y-auto rounded-t-3xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+          <div className="relative max-h-[92dvh] w-full space-y-3 overflow-y-auto rounded-t-xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-xl">
             <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-line sm:hidden" />
             <div className="flex justify-between gap-2">
               {QUICK_REACTIONS.map((e) => (
@@ -936,20 +945,20 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
               ))}
             </div>
             <div className="overflow-hidden rounded-2xl bg-surface2/40">
-              <SheetRow icon="💬" onClick={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}>Répondre</SheetRow>
-              <SheetRow icon="📋" onClick={() => copyText(sheetMsg)}>Copier le texte</SheetRow>
-              <SheetRow icon="🔗" onClick={() => copyLink(sheetMsg)}>Copier le lien</SheetRow>
+              <SheetRow icon={<Reply size={18} />} onClick={() => { setReplyTo(sheetMsg); setSheetMsg(null); }}>Répondre</SheetRow>
+              <SheetRow icon={<Copy size={18} />} onClick={() => copyText(sheetMsg)}>Copier le texte</SheetRow>
+              <SheetRow icon={<Link2 size={18} />} onClick={() => copyLink(sheetMsg)}>Copier le lien</SheetRow>
               {sheetMsg.author_id !== me && (
-                <SheetRow icon="🚩" onClick={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}>Signaler</SheetRow>
+                <SheetRow icon={<Flag size={18} />} onClick={() => { setReportTarget(sheetMsg); setSheetMsg(null); }}>Signaler</SheetRow>
               )}
               {canModerate && (
-                <SheetRow icon="📌" onClick={() => togglePin(sheetMsg)}>
+                <SheetRow icon={<Pin size={18} />} onClick={() => togglePin(sheetMsg)}>
                   {pinnedIds.has(sheetMsg.id) ? 'Désépingler' : 'Épingler le message'}
                 </SheetRow>
               )}
               {sheetMsg.author_id === me && (
                 <SheetRow
-                  icon="✎"
+                  icon={<Pencil size={18} />}
                   onClick={() => {
                     setEditingId(sheetMsg.id);
                     setEditText(sheetMsg.content);
@@ -960,7 +969,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                 </SheetRow>
               )}
               {(sheetMsg.author_id === me || canModerate) && (
-                <SheetRow icon="🗑️" danger onClick={() => {
+                <SheetRow icon={<Trash2 size={18} />} danger onClick={() => {
                   if (window.confirm('Supprimer ce message ?')) deleteMessage(sheetMsg);
                   else setSheetMsg(null);
                 }}>
@@ -1018,7 +1027,7 @@ function SheetRow({
   danger,
   children,
 }: {
-  icon: string;
+  icon: React.ReactNode;
   onClick: () => void;
   danger?: boolean;
   children: React.ReactNode;
@@ -1030,7 +1039,7 @@ function SheetRow({
         danger ? 'text-danger' : ''
       }`}
     >
-      <span className="w-6 text-center text-xl">{icon}</span>
+      <span className="flex w-6 shrink-0 items-center justify-center text-muted">{icon}</span>
       {children}
     </button>
   );

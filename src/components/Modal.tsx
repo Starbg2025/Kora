@@ -30,7 +30,7 @@ export default function Modal({
       aria-label={title}
     >
       <div
-        className={`w-full ${maxWidth ?? (wide ? 'max-w-lg' : 'max-w-md')} rounded-2xl bg-surface p-6 shadow-2xl`}
+        className={`w-full ${maxWidth ?? (wide ? 'max-w-lg' : 'max-w-md')} rounded-xl bg-surface p-6 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

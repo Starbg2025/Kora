@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { AtSign, Calendar, Globe, Play, type LucideIcon } from 'lucide-react';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
+import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../lib/format';
+import { effectiveStatus } from '../lib/privacy';
 import { STATUS_COLORS, STATUS_LABELS, type Friendship, type Profile } from '../lib/types';
 
 interface Props {
@@ -9,6 +12,7 @@ interface Props {
   friendship?: Friendship | null; // pour « Ami(e) depuis le »
   status?: string;
   onMessage: () => void;
+  onCall?: () => void;
   onClose: () => void;
 }
 
@@ -18,21 +22,58 @@ function activeCustomStatus(p: Profile): string {
   return p.custom_status;
 }
 
-/** Fiche profil façon Discord : bannière, avatar, bio, dates, actions. */
-export default function ProfileCard({ profile, friendship, status = 'hors_ligne', onMessage, onClose }: Props) {
+const SOCIAL_LINKS: { key: string; label: string; icon: LucideIcon }[] = [
+  { key: 'website', label: 'Site web', icon: Globe },
+  { key: 'x', label: 'X', icon: AtSign },
+  { key: 'youtube', label: 'YouTube', icon: Play },
+];
+
+/** Fiche profil : bannière, avatar, bio, dates, actions. */
+export default function ProfileCard({ profile, friendship: friendshipProp, status = 'hors_ligne', onMessage, onCall, onClose }: Props) {
   const [tab, setTab] = useState<'principal' | 'activite'>('principal');
-  const [callNote, setCallNote] = useState(false);
-  const dot = STATUS_COLORS[status] ?? STATUS_COLORS.hors_ligne;
+  const { sb, user } = useAuth();
+  const [friendship, setFriendship] = useState<Friendship | null>(friendshipProp ?? null);
+
+  // Si l'appelant ne connaît pas le lien d'amitié, on le charge (sert à
+  // appliquer le réglage de confidentialité du statut, sans jamais l'inventer).
+  useEffect(() => {
+    if (friendshipProp !== undefined) {
+      setFriendship(friendshipProp);
+      return;
+    }
+    if (!user || user.id === profile.id) {
+      setFriendship(null);
+      return;
+    }
+    let alive = true;
+    sb.from('friendships')
+      .select('*')
+      .eq('status', 'accepted')
+      .or(`and(requester_id.eq.${user.id},addressee_id.eq.${profile.id}),and(requester_id.eq.${profile.id},addressee_id.eq.${user.id})`)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (alive) setFriendship((data as Friendship | null) ?? null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sb, user, profile.id, friendshipProp]);
+
+  const friendIds = friendship?.status === 'accepted' ? new Set([profile.id]) : new Set<string>();
+  const visibleStatus = effectiveStatus(profile, user?.id ?? null, friendIds, status === 'hors_ligne' ? null : status);
+  const shownStatus = visibleStatus === 'invisible' ? 'hors_ligne' : visibleStatus;
+  const dot = STATUS_COLORS[shownStatus] ?? STATUS_COLORS.hors_ligne;
+  const links = (profile.social_links ?? {}) as Record<string, string>;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label={`Profil de ${profile.display_name || profile.username}`}>
       <button aria-label="Fermer" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-surface shadow-2xl sm:max-w-sm sm:rounded-3xl">
+      <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-xl bg-surface shadow-2xl sm:max-w-sm sm:rounded-xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
-        {/* Bannière décorative (image si présente, sinon couleur Kora) + avatar */}
+        {/* Bannière sobre (image si présente, sinon couleur unie, sinon fond neutre) + avatar */}
         <div
-          className={`relative h-28 overflow-hidden ${profile.banner_color && !profile.banner_url ? '' : profile.banner_url ? '' : 'bg-gradient-to-br from-primary via-[#a855f7] to-accent'}`}
-          style={profile.banner_color && !profile.banner_url ? { background: `linear-gradient(135deg, ${profile.banner_color}, ${profile.banner_color}88)` } : undefined}
+          className="relative h-28 overflow-hidden bg-surface2"
+          style={profile.banner_color && !profile.banner_url ? { backgroundColor: profile.banner_color } : undefined}
         >
           {profile.banner_url && <img src={profile.banner_url} alt="" className="absolute inset-0 h-full w-full object-cover" />}
           <button
@@ -52,12 +93,12 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
               <span
                 className="absolute bottom-1 right-1 h-6 w-6 rounded-full border-4 border-surface"
                 style={{ backgroundColor: dot }}
-                title={STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status}
+                title={STATUS_LABELS[shownStatus as keyof typeof STATUS_LABELS] ?? shownStatus}
               />
             </span>
           </div>
 
-          <h2 className="flex items-center gap-2 text-xl font-extrabold">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
             <span>{profile.display_name || profile.username}</span>
             {profile.is_verified && <VerifiedBadge size={18} />}
           </h2>
@@ -78,21 +119,18 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
               </svg>
               Envoyer un message
             </button>
-            <button
-              onClick={() => setCallNote(true)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-surface2 px-4 py-2.5 text-sm font-bold hover:bg-line"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
-              </svg>
-              Appeler
-            </button>
+            {onCall && (
+              <button
+                onClick={onCall}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-surface2 px-4 py-2.5 text-sm font-bold hover:bg-line"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+                </svg>
+                Appeler
+              </button>
+            )}
           </div>
-          {callNote && (
-            <p className="mt-2 rounded-xl bg-accent/10 px-3 py-2 text-xs text-accent">
-              Les appels vocaux et vidéo arrivent avec la prochaine mise à jour de Kora.
-            </p>
-          )}
 
           <div className="mt-4 flex border-b border-line">
             {(
@@ -125,12 +163,34 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
               )}
               <div>
                 <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Membre depuis</p>
-                <p className="text-sm">🎂 {formatDate(profile.created_at)}</p>
+                <p className="flex items-center gap-1.5 text-sm"><Calendar size={14} className="text-muted" /> {formatDate(profile.created_at)}</p>
               </div>
               {friendship?.status === 'accepted' && (
                 <div>
                   <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Ami(e) depuis le</p>
                   <p className="text-sm">{formatDate(friendship.created_at)}</p>
+                </div>
+              )}
+              {SOCIAL_LINKS.some((l) => links[l.key]) && (
+                <div>
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">Liens</p>
+                  <div className="flex flex-col gap-1">
+                    {SOCIAL_LINKS.filter((l) => links[l.key]).map((l) => {
+                      const Icon = l.icon;
+                      return (
+                        <a
+                          key={l.key}
+                          href={links[l.key]}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 text-sm text-primary hover:underline"
+                        >
+                          <Icon size={14} className="shrink-0" />
+                          <span className="truncate">{l.label} — {links[l.key].replace(/^https?:\/\//, '')}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -139,7 +199,7 @@ export default function ProfileCard({ profile, friendship, status = 'hors_ligne'
               <div className="flex items-center gap-2">
                 <span className="h-3 w-3 rounded-full" style={{ backgroundColor: dot }} />
                 <p className="text-sm font-semibold">
-                  {STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? 'Hors ligne'}
+                  {STATUS_LABELS[shownStatus as keyof typeof STATUS_LABELS] ?? 'Hors ligne'}
                 </p>
               </div>
               {activeCustomStatus(profile) ? (

@@ -91,7 +91,7 @@ export default function Login() {
           <Logo size={44} />
           <span className="text-2xl font-extrabold">Kora</span>
         </Link>
-        <div className="rounded-3xl bg-surface p-8 shadow-xl">
+        <div className="rounded-xl bg-surface p-8 shadow-xl">
           {step === 'login' ? (
             <>
               <h1 className="text-2xl font-extrabold">Bon retour !</h1>

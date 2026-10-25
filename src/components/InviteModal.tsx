@@ -3,6 +3,7 @@ import Modal from './Modal';
 import { useAuth } from '../context/AuthContext';
 import { generateInviteCode } from '../lib/community';
 import type { CommunityInvite } from '../lib/types';
+import { X } from 'lucide-react';
 
 interface Props {
   communityId: string;
@@ -171,7 +172,7 @@ export default function InviteModal({ communityId, communityName, onClose }: Pro
                     title="Révoquer"
                     aria-label="Révoquer l’invitation"
                   >
-                    ✕
+                    <X size={16} />
                   </button>
                 </li>
               ))}

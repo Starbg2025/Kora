@@ -14,6 +14,8 @@ import { openDirectDM } from '../lib/dm';
 import { containsMention, snippet } from '../lib/mentions';
 import { useNotifications } from '../context/NotificationsContext';
 import { STATUS_LABELS, type DM, type Friendship, type Message, type Profile } from '../lib/types';
+import { Bell, BellOff, Eye, Inbox, LogOut, Pin, Search, Settings, User, Users } from 'lucide-react';
+import { useCall } from '../context/CallContext';
 
 export interface DMView {
   dm: DM;
@@ -55,6 +57,7 @@ const muteIcon = (
 
 export default function DMs() {
   const { sb, user, profile, settings, saveSettings } = useAuth();
+  const { startCall } = useCall();
   const { online } = usePresence();
   const { entries } = useFriends();
   const { notify, unreadCount } = useNotifications();
@@ -83,6 +86,8 @@ export default function DMs() {
 
   const me = user?.id ?? '';
   const mutedIds = new Set(settings?.dm_mute ?? []);
+  const mutedRef = useRef<Set<string>>(new Set());
+  mutedRef.current = new Set(settings?.dm_mute ?? []);
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
   const pendingRequests = entries.filter(
     (e) => e.friendship.status === 'pending' && e.friendship.addressee_id === me,
@@ -194,8 +199,11 @@ export default function DMs() {
           next[idx] = v;
           return next;
         });
-        // Déclencheur : mention @pseudo → notification pour le destinataire
-        if (m.author_id !== me && profile?.username && containsMention(m.content, profile.username)) {
+        // Déclencheur : message reçu dans une discussion qu'on ne regarde pas
+        // (et non mise en sourdine) → notification. Mention → type mention,
+        // sinon type message. Jamais de notification pour ses propres messages
+        // ni pour la discussion ouverte.
+        if (m.author_id !== me && m.dm_id !== openDmId && !mutedRef.current.has(m.dm_id)) {
           sb.from('profiles')
             .select('display_name, username')
             .eq('id', m.author_id)
@@ -203,7 +211,11 @@ export default function DMs() {
             .then(({ data }) => {
               const p = data as { display_name: string; username: string } | null;
               const name = p?.display_name || p?.username || 'Quelqu’un';
-              notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}`);
+              if (profile?.username && containsMention(m.content, profile.username)) {
+                notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}`);
+              } else {
+                notify('message', `${name} t’a envoyé un message`, snippet(m.content), `/app/dm/${m.dm_id}`);
+              }
             });
         }
       })
@@ -384,7 +396,7 @@ export default function DMs() {
             title="Rechercher dans tes messages (Ctrl+K)"
             aria-label="Rechercher dans tes messages"
           >
-            🔍
+            <Search size={16} />
           </button>
           <button
             onClick={() => navigate('/app/amis')}
@@ -392,7 +404,7 @@ export default function DMs() {
             title="Ajouter des amis"
             aria-label="Ajouter des amis"
           >
-            <span>👥</span> <span className="hidden lg:inline">Ajouter des amis</span>
+            <span><Users size={16} /></span> <span className="hidden lg:inline">Ajouter des amis</span>
           </button>
           <button
             onClick={() => navigate('/app/dm/nouveau')}
@@ -408,13 +420,13 @@ export default function DMs() {
             onClick={() => navigate('/app/amis')}
             className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-surface2/60"
           >
-            <span className="text-base">👥</span> Amis
+            <span className="text-base"><Users size={16} /></span> Amis
           </button>
           <button
             onClick={() => navigate('/app/amis?onglet=attente')}
             className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-surface2/60"
           >
-            <span className="text-base">📩</span> Demandes d’amis
+            <span className="text-base"><Inbox size={16} /></span> Demandes d’amis
             {pendingRequests > 0 && (
               <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-white">
                 {pendingRequests}
@@ -463,7 +475,7 @@ export default function DMs() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <p className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold">
-                          {isPinned && <span title="Épinglée">📌</span>}
+                          {isPinned && <span title="Épinglée"><Pin size={14} /></span>}
                           <span className="truncate">{dmTitle(v)}</span>
                           {!v.dm.is_group && v.others[0]?.is_verified && <VerifiedBadge size={13} />}
                         </p>
@@ -472,7 +484,7 @@ export default function DMs() {
                         )}
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-xs text-muted">{isBlocked ? '🚫 Message bloqué' : preview(v)}</p>
+                        <p className="truncate text-xs text-muted">{isBlocked ? 'Message bloqué' : preview(v)}</p>
                         <span className="flex shrink-0 items-center gap-1.5">
                           {isMuted && <span title="Sourdine">{muteIcon}</span>}
                           {v.unread > 0 && !isBlocked && (
@@ -508,7 +520,7 @@ export default function DMs() {
             title="Notifications"
             aria-label="Notifications"
           >
-            🔔
+            <Bell size={18} />
             {unreadCount > 0 && (
               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
                 {unreadCount > 99 ? '99+' : unreadCount}
@@ -521,7 +533,7 @@ export default function DMs() {
             title="Paramètres utilisateur"
             aria-label="Paramètres utilisateur"
           >
-            ⚙️
+            <Settings size={18} />
           </button>
         </div>
       </aside>
@@ -533,7 +545,7 @@ export default function DMs() {
       {sheetDM && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Actions de la conversation">
           <button aria-label="Fermer" onClick={() => setSheetDM(null)} className="absolute inset-0 bg-black/60" />
-          <div className="relative w-full rounded-t-3xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+          <div className="relative w-full rounded-t-xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-xl">
             <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-line sm:hidden" />
             <div className="mb-3 flex items-center gap-3 px-2">
               {sheetDM.dm.is_group ? <GroupAvatar profiles={sheetDM.others} size={44} /> : <Avatar profile={sheetDM.others[0]} size={44} />}
@@ -542,24 +554,24 @@ export default function DMs() {
             <div className="space-y-1">
               {sheetFriend && (
                 <button onClick={() => openProfile(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
-                  <span className="text-muted">👤</span> Profil
+                  <span className="text-muted"><User size={18} /></span> Profil
                 </button>
               )}
               <button onClick={() => closeDM(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
-                <span className="text-muted">🚪</span> {sheetDM.dm.is_group ? 'Quitter le groupe' : 'Fermer le MP'}
+                <span className="text-muted"><LogOut size={18} /></span> {sheetDM.dm.is_group ? 'Quitter le groupe' : 'Fermer le MP'}
               </button>
             </div>
             <div className="mt-2 space-y-1 rounded-2xl bg-surface2/50 p-1">
               <button onClick={() => togglePin(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
-                <span className="text-muted">📌</span> {pinned.includes(sheetDM.dm.id) ? 'Désépingler' : 'Épingler'}
+                <span className="text-muted"><Pin size={14} /></span> {pinned.includes(sheetDM.dm.id) ? 'Désépingler' : 'Épingler'}
               </button>
             </div>
             <div className="mt-2 space-y-1 rounded-2xl bg-surface2/50 p-1">
               <button onClick={() => markAsRead(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
-                <span className="text-muted">👁️</span> Marquer comme lu
+                <span className="text-muted"><Eye size={18} /></span> Marquer comme lu
               </button>
               <button onClick={() => toggleMute(sheetDM)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] font-medium hover:bg-surface2">
-                <span className="text-muted">🔕</span> {mutedIds.has(sheetDM.dm.id) ? 'Réactiver les notifications' : 'Rendre cette conversation muette'}
+                <span className="text-muted"><BellOff size={18} /></span> {mutedIds.has(sheetDM.dm.id) ? 'Réactiver les notifications' : 'Rendre cette conversation muette'}
               </button>
             </div>
           </div>
@@ -572,6 +584,16 @@ export default function DMs() {
           friendship={profileFriendship}
           status={online[profileTarget.id]?.status ?? 'hors_ligne'}
           onMessage={() => openMessageTo(profileTarget)}
+          onCall={async () => {
+            const target = profileTarget;
+            setProfileTarget(null);
+            try {
+              const dmId = await openDirectDM(sb, me, target.id);
+              startCall(dmId, target, 'audio');
+            } catch {
+              flash('Appel impossible.');
+            }
+          }}
           onClose={() => setProfileTarget(null)}
         />
       )}

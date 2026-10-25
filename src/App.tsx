@@ -30,7 +30,7 @@ import AdminPage from './pages/AdminPage';
 function ConfigRequired() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-base px-4 text-ink">
-      <div className="w-full max-w-lg rounded-3xl bg-surface p-8 shadow-xl">
+      <div className="w-full max-w-lg rounded-xl bg-surface p-8 shadow-xl">
         <div className="mb-4 flex items-center gap-3">
           <Logo size={40} />
           <h1 className="text-xl font-extrabold">Kora — configuration requise</h1>

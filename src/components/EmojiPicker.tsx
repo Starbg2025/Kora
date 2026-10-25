@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { loadCustomEmojis, type CustomEmojiEntry } from '../lib/emojis';
 import type { CustomSticker } from '../lib/types';
+import { Film, Search, Sticker } from 'lucide-react';
 
 interface EmojiEntry {
   e: string;
@@ -281,6 +282,7 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker,
 
   // Autocollants
   const [stickers, setStickers] = useState<CustomSticker[]>([]);
+  const [stickerQuery, setStickerQuery] = useState('');
   const [stickerNames, setStickerNames] = useState<Record<string, string>>({});
   const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [stickersLoaded, setStickersLoaded] = useState(false);
@@ -431,7 +433,7 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker,
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Sélecteur d'émojis">
       <button aria-label="Fermer" onClick={onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative flex max-h-[80dvh] w-full flex-col rounded-t-3xl bg-surface shadow-2xl sm:max-w-md sm:rounded-3xl">
+      <div className="relative flex max-h-[80dvh] w-full flex-col rounded-t-xl bg-surface shadow-2xl sm:max-w-md sm:rounded-xl">
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
         <div className="flex gap-1 border-b border-line px-4 pt-2">
           {(
@@ -457,7 +459,7 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker,
           <div className="flex min-h-0 flex-1 flex-col">
             {!TENOR_KEY ? (
               <div className="flex flex-col items-center px-6 py-12 text-center">
-                <p className="text-4xl">🎞️</p>
+                <Film size={40} className="mx-auto text-muted" />
                 <p className="mt-3 font-bold">GIFs indisponibles</p>
                 <p className="mt-1 text-sm text-muted">
                   La clé Tenor n’est pas configurée. Ajoute <code className="rounded bg-surface2 px-1 font-mono text-xs">VITE_TENOR_API_KEY</code> dans
@@ -508,47 +510,65 @@ export default function EmojiPicker({ onPick, onClose, onPickGif, onPickSticker,
               <p className="py-8 text-center text-sm text-muted">Chargement…</p>
             ) : stickers.length === 0 ? (
               <div className="flex flex-col items-center px-6 py-12 text-center">
-                <p className="text-4xl">😺</p>
+                <Sticker size={40} className="mx-auto text-muted" />
                 <p className="mt-3 font-bold">Aucun autocollant pour le moment</p>
                 <p className="mt-1 text-sm text-muted">
                   Les administrateurs de tes communautés peuvent en importer depuis les paramètres du serveur (section Stickers).
                 </p>
               </div>
             ) : (
-              (() => {
-                const byCommunity = new Map<string, CustomSticker[]>();
-                for (const s of stickers) {
-                  const arr = byCommunity.get(s.community_id) ?? [];
-                  arr.push(s);
-                  byCommunity.set(s.community_id, arr);
-                }
-                return [...byCommunity.entries()].map(([cid, items]) => (
-                  <div key={cid} className="mb-4">
-                    <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">
-                      {stickerNames[cid] ?? 'Communauté'}
-                    </p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {items.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => {
-                            recordStickerUse(s.image_path);
-                            onPickSticker?.(s);
-                          }}
-                          className="flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-surface2 p-1 hover:border hover:border-primary/60"
-                          title={s.name}
-                        >
-                          {stickerUrls[s.id] ? (
-                            <img src={stickerUrls[s.id]} alt={s.name} className="max-h-full max-w-full object-contain" loading="lazy" />
-                          ) : (
-                            <span className="text-xs text-muted">{s.name}</span>
-                          )}
-                        </button>
-                      ))}
+              <>
+                <div className="mb-3 flex items-center gap-2 rounded-xl border border-line bg-surface2 px-3 py-2">
+                  <Search size={16} className="shrink-0 text-muted" />
+                  <input
+                    value={stickerQuery}
+                    onChange={(e) => setStickerQuery(e.target.value)}
+                    placeholder="Rechercher un autocollant…"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+                  />
+                </div>
+                {(() => {
+                  const q = stickerQuery.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                  const visible = q
+                    ? stickers.filter((s) => s.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(q))
+                    : stickers;
+                  if (visible.length === 0) {
+                    return <p className="py-8 text-center text-sm text-muted">Aucun autocollant trouvé pour « {stickerQuery.trim()} ».</p>;
+                  }
+                  const byCommunity = new Map<string, CustomSticker[]>();
+                  for (const s of visible) {
+                    const arr = byCommunity.get(s.community_id) ?? [];
+                    arr.push(s);
+                    byCommunity.set(s.community_id, arr);
+                  }
+                  return [...byCommunity.entries()].map(([cid, items]) => (
+                    <div key={cid} className="mb-4">
+                      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted">
+                        {stickerNames[cid] ?? 'Communauté'}
+                      </p>
+                      <div className="grid grid-cols-4 gap-2">
+                        {items.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => {
+                              recordStickerUse(s.image_path);
+                              onPickSticker?.(s);
+                            }}
+                            className="flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-surface2 p-1 hover:border hover:border-primary/60"
+                            title={s.name}
+                          >
+                            {stickerUrls[s.id] ? (
+                              <img src={stickerUrls[s.id]} alt={s.name} className="max-h-full max-w-full object-contain" loading="lazy" />
+                            ) : (
+                              <span className="text-xs text-muted">{s.name}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ));
-              })()
+                  ));
+                })()}
+              </>
             )}
           </div>
         ) : (

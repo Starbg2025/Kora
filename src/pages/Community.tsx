@@ -10,6 +10,7 @@ import ModerationPanel from '../components/ModerationPanel';
 import InviteModal from '../components/InviteModal';
 import type { ChannelOutletContext } from './ChannelRoute';
 import { normalizeChannelName } from '../lib/community';
+import { ChevronDown, ChevronRight, ChevronUp, Link2, LogOut, Pencil, Plus, Settings, Shield, Trash2, Users, Volume2, X } from 'lucide-react';
 import type {
   Channel,
   ChannelCategory,
@@ -486,10 +487,6 @@ export default function Community() {
       <div key={ch.id} className="group flex items-center gap-1 px-2">
         <button
           onClick={() => {
-            if (isVoice) {
-              flash('Les salons vocaux arrivent avec la prochaine mise à jour de Kora.');
-              return;
-            }
             markChannelVisited(ch.id);
             navigate(`/app/c/${communityId}/${ch.id}`);
           }}
@@ -497,7 +494,7 @@ export default function Community() {
             active ? 'bg-surface2 font-semibold text-ink' : 'text-muted hover:bg-surface2/60 hover:text-ink'
           }`}
         >
-          <span className="shrink-0 text-base text-muted">{isVoice ? '🔊' : '#'}</span>
+          <span className="shrink-0 text-base text-muted">{isVoice ? <Volume2 size={16} /> : '#'}</span>
           <span className="min-w-0 flex-1 truncate">{ch.name}</span>
           {hasMention ? (
             <span className="shrink-0 rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">@NOUVEAU</span>
@@ -513,7 +510,7 @@ export default function Community() {
               title="Monter"
               aria-label="Monter le salon"
             >
-              ↑
+              <ChevronUp size={14} />
             </button>
             <button
               onClick={() => moveChannel(ch, 1)}
@@ -521,7 +518,7 @@ export default function Community() {
               title="Descendre"
               aria-label="Descendre le salon"
             >
-              ↓
+              <ChevronDown size={14} />
             </button>
             <button
               onClick={() => setEditingChannel({ ...ch })}
@@ -529,7 +526,7 @@ export default function Community() {
               title="Renommer"
               aria-label="Renommer le salon"
             >
-              ✎
+              <Pencil size={14} />
             </button>
             <button
               onClick={() => deleteChannel(ch)}
@@ -537,7 +534,7 @@ export default function Community() {
               title="Supprimer"
               aria-label="Supprimer le salon"
             >
-              ✕
+              <X size={14} />
             </button>
           </div>
         )}
@@ -578,7 +575,7 @@ export default function Community() {
               <span className="block truncate text-[15px] font-extrabold">{community.name}</span>
               <span className="block truncate text-[11px] text-muted">{members.length} membre{members.length > 1 ? 's' : ''} • Communauté</span>
             </span>
-            <span className="shrink-0 text-muted">{showMenu ? '▴' : '▾'}</span>
+            <span className="shrink-0 text-muted">{showMenu ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
           </button>
           <button
             onClick={() => setShowInvite(true)}
@@ -586,7 +583,7 @@ export default function Community() {
             title="Inviter des membres"
             aria-label="Inviter des membres"
           >
-            🔗
+            <Link2 size={16} />
           </button>
           <button
             onClick={toggleChannels}
@@ -604,7 +601,7 @@ export default function Community() {
                   onClick={() => { setShowMenu(false); setShowInvite(true); }}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                 >
-                  <span>🔗</span> Inviter des membres
+                  <span><Link2 size={16} /></span> Inviter des membres
                 </button>
                 <button
                   onClick={() => {
@@ -614,14 +611,14 @@ export default function Community() {
                   }}
                   className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                 >
-                  <span>👥</span> Voir les membres
+                  <span><Users size={16} /></span> Voir les membres
                 </button>
                 {isAdmin && (
                   <button
                     onClick={() => { setShowMenu(false); setShowSettings(true); }}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                   >
-                    <span>⚙️</span> Paramètres
+                    <span><Settings size={16} /></span> Paramètres
                   </button>
                 )}
                 {canModerate && (
@@ -629,7 +626,7 @@ export default function Community() {
                     onClick={() => { setShowMenu(false); setShowModeration(true); }}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-surface2"
                   >
-                    <span>🛡️</span> Modération
+                    <span><Shield size={16} /></span> Modération
                   </button>
                 )}
                 <div className="h-px bg-line" />
@@ -638,14 +635,14 @@ export default function Community() {
                     onClick={() => { setShowMenu(false); setConfirmDelete(true); }}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-danger hover:bg-surface2"
                   >
-                    <span>🗑️</span> Supprimer la communauté
+                    <span><Trash2 size={16} /></span> Supprimer la communauté
                   </button>
                 ) : (
                   <button
                     onClick={() => { setShowMenu(false); setConfirmLeave(true); }}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-danger hover:bg-surface2"
                   >
-                    <span>🚪</span> Quitter la communauté
+                    <span><LogOut size={16} /></span> Quitter la communauté
                   </button>
                 )}
               </div>
@@ -666,7 +663,7 @@ export default function Community() {
               aria-label="Rechercher un salon"
             />
             {channelSearch && (
-              <button onClick={() => setChannelSearch('')} className="text-muted hover:text-ink" aria-label="Effacer">✕</button>
+              <button onClick={() => setChannelSearch('')} className="text-muted hover:text-ink" aria-label="Effacer"><X size={14} /></button>
             )}
           </div>
         </div>
@@ -687,7 +684,7 @@ export default function Community() {
                     className="flex min-w-0 flex-1 items-center gap-1 text-left"
                     aria-label={collapsed ? `Déplier ${cat.name}` : `Replier ${cat.name}`}
                   >
-                    <span className="shrink-0 text-[10px] text-muted">{collapsed ? '▶' : '▼'}</span>
+                    <span className="shrink-0 text-[10px] text-muted">{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
                     <span className="truncate text-xs font-bold uppercase tracking-wide text-muted">{cat.name}</span>
                   </button>
                   {isAdmin && (
@@ -698,7 +695,7 @@ export default function Community() {
                         title="Ajouter un salon"
                         aria-label="Ajouter un salon"
                       >
-                        ＋
+                        <Plus size={14} />
                       </button>
                       <button
                         onClick={() => moveCategory(cat, -1)}
@@ -706,7 +703,7 @@ export default function Community() {
                         title="Monter la catégorie"
                         aria-label="Monter la catégorie"
                       >
-                        ↑
+                        <ChevronUp size={14} />
                       </button>
                       <button
                         onClick={() => moveCategory(cat, 1)}
@@ -714,7 +711,7 @@ export default function Community() {
                         title="Descendre la catégorie"
                         aria-label="Descendre la catégorie"
                       >
-                        ↓
+                        <ChevronDown size={14} />
                       </button>
                       <button
                         onClick={() => setEditingCategory({ ...cat })}
@@ -722,7 +719,7 @@ export default function Community() {
                         title="Renommer la catégorie"
                         aria-label="Renommer la catégorie"
                       >
-                        ✎
+                        <Pencil size={14} />
                       </button>
                       <button
                         onClick={() => deleteCategory(cat)}
@@ -730,7 +727,7 @@ export default function Community() {
                         title="Supprimer la catégorie"
                         aria-label="Supprimer la catégorie"
                       >
-                        ✕
+                        <X size={14} />
                       </button>
                     </div>
                   )}
@@ -772,13 +769,13 @@ export default function Community() {
               onClick={() => openChannelModal(null)}
               className="flex-1 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
             >
-              ＋ Salon
+              <Plus size={14} /> Salon
             </button>
             <button
               onClick={() => setShowCategoryModal(true)}
               className="flex-1 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
             >
-              ＋ Catégorie
+              <Plus size={14} /> Catégorie
             </button>
           </div>
         )}
@@ -795,7 +792,7 @@ export default function Community() {
                 onClick={toggleChannels}
                 className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
               >
-                ☰ Voir les salons
+                Voir les salons
               </button>
             )}
             <EmptyState title="Sélectionne un salon" text="Choisis un salon dans la liste pour commencer à discuter." />
@@ -904,12 +901,12 @@ export default function Community() {
                     newChannelType === 'voice' ? 'border-primary bg-primary/15 text-ink' : 'border-line text-muted hover:bg-surface2'
                   }`}
                 >
-                  🔊 Vocal
+                  Vocal
                 </button>
               </div>
               {newChannelType === 'voice' && (
                 <p className="mt-1 text-xs text-muted">
-                  Les salons vocaux seront affichés et pourront être rejoints dans une prochaine mise à jour.
+                  Salon vocal de groupe en pair-à-pair (6 personnes maximum, sans serveur dédié).
                 </p>
               )}
             </div>

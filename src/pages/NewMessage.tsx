@@ -5,6 +5,7 @@ import { useFriends } from '../hooks/useFriends';
 import { usePresence } from '../context/PresenceContext';
 import Avatar from '../components/Avatar';
 import { openDirectDM } from '../lib/dm';
+import { Plus, Users } from 'lucide-react';
 
 /** Écran « Nouveau message » façon Discord : recherche d'amis + suggestions. */
 export default function NewMessage() {
@@ -77,7 +78,7 @@ export default function NewMessage() {
           onClick={() => navigate('/app/dm', { state: { createGroup: true } })}
           className="flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-left hover:bg-surface2"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface2 text-xl">👥</span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface2 text-muted"><Users size={20} /></span>
           <span className="flex-1">
             <span className="block text-sm font-bold">Nouveau groupe</span>
             <span className="block text-xs text-muted">Créer un groupe avec tes amis</span>
@@ -88,7 +89,7 @@ export default function NewMessage() {
           onClick={() => navigate('/app/amis')}
           className="flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3 text-left hover:bg-surface2"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface2 text-xl">➕</span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface2 text-muted"><Plus size={20} /></span>
           <span className="flex-1">
             <span className="block text-sm font-bold">Ajouter un ami</span>
             <span className="block text-xs text-muted">Trouver quelqu’un par son pseudo</span>

@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { usePresence } from './PresenceContext';
 import Avatar from '../components/Avatar';
 import type { CallKind, Profile } from '../lib/types';
+import { Bell, BellOff, ChevronDown, Maximize2, Mic, MicOff, Phone, PhoneOff, ScreenShare, Video, VideoOff, X } from 'lucide-react';
 
 /**
  * Appels 1:1 réels (WebRTC), globaux à l'application.
@@ -702,7 +703,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {phase === 'confirm' && peer && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center" role="dialog" aria-label="Commencer l’appel">
           <button aria-label="Annuler" onClick={() => setPhase('idle')} className="absolute inset-0 bg-black/70" />
-          <div className="relative w-full max-w-sm rounded-t-3xl bg-surface p-6 shadow-2xl sm:rounded-3xl">
+          <div className="relative w-full max-w-sm rounded-t-xl bg-surface p-6 shadow-2xl sm:rounded-xl">
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line sm:hidden" />
             <h2 className="text-center text-xl font-extrabold">Peut-on commencer l’appel ?</h2>
             <p className="mt-2 text-center text-sm text-muted">
@@ -739,7 +740,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label="Refuser"
               title="Refuser"
             >
-              ✕
+              <X size={16} />
             </button>
             <button
               onClick={acceptIncoming}
@@ -747,7 +748,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label="Accepter"
               title="Accepter"
             >
-              📞
+              <Phone size={28} />
             </button>
             <button
               onClick={() => {
@@ -763,7 +764,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label={ringMuted ? 'Réactiver la sonnerie' : 'Couper la sonnerie'}
               title={ringMuted ? 'Réactiver la sonnerie' : 'Couper la sonnerie'}
             >
-              {ringMuted ? '🔇' : '🔔'}
+              {ringMuted ? <BellOff size={18} /> : <Bell size={18} />}
             </button>
           </div>
         </div>
@@ -783,7 +784,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             aria-label="Annuler l’appel"
             title="Annuler l’appel"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
       )}
@@ -810,7 +811,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white ${muted ? 'bg-danger' : 'bg-surface2'}`}
             aria-label={muted ? 'Réactiver le micro' : 'Couper le micro'}
           >
-            {muted ? '🔇' : '🎤'}
+            {muted ? <MicOff size={20} /> : <Mic size={20} />}
           </span>
           <span
             role="button"
@@ -822,7 +823,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-danger text-white"
             aria-label="Raccrocher"
           >
-            📞
+            <PhoneOff size={20} />
           </span>
         </button>
       )}
@@ -871,7 +872,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     aria-label="Plein écran"
                     title="Plein écran"
                   >
-                    ⛶ Plein écran
+                    <Maximize2 size={14} className="mr-1 inline" /> Plein écran
                   </button>
                 )}
                 <button
@@ -880,7 +881,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   aria-label="Réduire l’appel"
                   title="Réduire l’appel"
                 >
-                  ⌄ Réduire
+                  <ChevronDown size={14} className="mr-1 inline" /> Réduire
                 </button>
               </div>
             </div>
@@ -892,7 +893,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label={muted ? 'Réactiver le micro' : 'Couper le micro'}
               title={muted ? 'Réactiver le micro' : 'Couper le micro'}
             >
-              {muted ? '🔇' : '🎤'}
+              {muted ? <MicOff size={20} /> : <Mic size={20} />}
             </button>
             {kind === 'video' && (
               <button
@@ -901,7 +902,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 aria-label={cameraOff ? 'Réactiver la caméra' : 'Couper la caméra'}
                 title={cameraOff ? 'Réactiver la caméra' : 'Couper la caméra'}
               >
-                {cameraOff ? '🚫' : '📹'}
+                {cameraOff ? <VideoOff size={20} /> : <Video size={20} />}
               </button>
             )}
             <button
@@ -910,7 +911,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label={sharing ? 'Arrêter le partage d’écran' : 'Partager l’écran'}
               title={sharing ? 'Arrêter le partage d’écran' : 'Partager l’écran'}
             >
-              🖥️
+              <ScreenShare size={20} />
             </button>
             <button
               onClick={() => endCall('termine', true)}
@@ -918,7 +919,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-label="Raccrocher"
               title="Raccrocher"
             >
-              📞
+              <PhoneOff size={20} />
             </button>
           </div>
         </div>

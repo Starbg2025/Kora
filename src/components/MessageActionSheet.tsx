@@ -1,4 +1,5 @@
 import type { Message, Profile } from '../lib/types';
+import { Copy, Eye, Flag, Forward, Link2, Pencil, Pin, Reply, Trash2 } from 'lucide-react';
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '✅', '💀', '🙂'];
 
@@ -20,7 +21,7 @@ interface Props {
   onClose: () => void;
 }
 
-function Row({ onClick, danger, icon, children }: { onClick: () => void; danger?: boolean; icon: string; children: React.ReactNode }) {
+function Row({ onClick, danger, icon, children }: { onClick: () => void; danger?: boolean; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
@@ -28,7 +29,7 @@ function Row({ onClick, danger, icon, children }: { onClick: () => void; danger?
         danger ? 'text-danger' : ''
       }`}
     >
-      <span className="w-6 text-center text-xl">{icon}</span>
+      <span className="flex w-6 shrink-0 items-center justify-center text-muted">{icon}</span>
       {children}
     </button>
   );
@@ -43,7 +44,7 @@ export default function MessageActionSheet(p: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-label="Actions du message">
       <button aria-label="Fermer" onClick={p.onClose} className="absolute inset-0 bg-black/60" />
-      <div className="relative max-h-[92dvh] w-full space-y-3 overflow-y-auto rounded-t-3xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+      <div className="relative max-h-[92dvh] w-full space-y-3 overflow-y-auto rounded-t-xl bg-surface p-4 shadow-2xl sm:max-w-sm sm:rounded-xl">
         <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-line sm:hidden" />
 
         <div className="flex justify-between gap-2">
@@ -63,18 +64,18 @@ export default function MessageActionSheet(p: Props) {
         </p>
 
         <Group>
-          {p.isMe && <Row onClick={p.onEdit} icon="✏️">Modifier le message</Row>}
-          <Row onClick={p.onReply} icon="↩️">Répondre</Row>
-          <Row onClick={p.onForward} icon="➡️">Transférer</Row>
+          {p.isMe && <Row onClick={p.onEdit} icon={<Pencil size={18} />}>Modifier le message</Row>}
+          <Row onClick={p.onReply} icon={<Reply size={18} />}>Répondre</Row>
+          <Row onClick={p.onForward} icon={<Forward size={18} />}>Transférer</Row>
         </Group>
 
         <Group>
-          {p.message.content && <Row onClick={p.onCopy} icon="📋">Copier le texte</Row>}
-          <Row onClick={p.onMarkUnread} icon="👁️">Marquer comme non lu</Row>
-          <Row onClick={p.onTogglePin} icon="📌">{p.isPinned ? 'Désépingler le message' : 'Épingler le message'}</Row>
-          <Row onClick={p.onCopyLink} icon="🔗">Copier le lien du message</Row>
-          {!p.isMe && p.onReport && <Row onClick={p.onReport} icon="🚩">Signaler</Row>}
-          {p.isMe && <Row onClick={p.onDelete} icon="🗑️" danger>Supprimer le message</Row>}
+          {p.message.content && <Row onClick={p.onCopy} icon={<Copy size={18} />}>Copier le texte</Row>}
+          <Row onClick={p.onMarkUnread} icon={<Eye size={18} />}>Marquer comme non lu</Row>
+          <Row onClick={p.onTogglePin} icon={<Pin size={18} />}>{p.isPinned ? 'Désépingler le message' : 'Épingler le message'}</Row>
+          <Row onClick={p.onCopyLink} icon={<Link2 size={18} />}>Copier le lien du message</Row>
+          {!p.isMe && p.onReport && <Row onClick={p.onReport} icon={<Flag size={18} />}>Signaler</Row>}
+          {p.isMe && <Row onClick={p.onDelete} icon={<Trash2 size={18} />} danger>Supprimer le message</Row>}
         </Group>
       </div>
     </div>

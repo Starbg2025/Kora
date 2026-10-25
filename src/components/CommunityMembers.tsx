@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCall } from '../context/CallContext';
 import Avatar from './Avatar';
 import ProfileCard from './ProfileCard';
 import VerifiedBadge from './VerifiedBadge';
 import { openDirectDM } from '../lib/dm';
+import { effectiveStatus } from '../lib/privacy';
 import { ROLE_COLORS, ROLE_LABELS, ROLE_RANK, type CommunityMember, type CommunityRole, type Profile } from '../lib/types';
+import { X } from 'lucide-react';
 
 interface Props {
   communityId: string;
@@ -19,12 +22,12 @@ interface Props {
   flash: (msg: string) => void;
 }
 
-function statusOf(member: CommunityMember, online: Props['online']): string {
+function statusOf(member: CommunityMember, online: Props['online'], me: string, friendIds: ReadonlySet<string>): string {
   const p = member.profiles;
   if (!p) return 'hors_ligne';
   const live = online[member.user_id]?.status;
-  if (live) return live;
-  return p.status === 'invisible' ? 'hors_ligne' : p.status;
+  const s = effectiveStatus(p, me, friendIds, live ?? null);
+  return s === 'invisible' ? 'hors_ligne' : s;
 }
 
 const ROLE_ORDER: CommunityRole[] = ['proprietaire', 'admin', 'moderateur', 'membre'];
@@ -32,6 +35,7 @@ const ROLE_ORDER: CommunityRole[] = ['proprietaire', 'admin', 'moderateur', 'mem
 /** Panneau des membres : en ligne / hors ligne, groupés par rôle, modération, fiche profil au clic. */
 export default function CommunityMembers({ communityId, members, myRole, me, online, variant, onClose, onChanged, flash }: Props) {
   const { sb } = useAuth();
+  const { startCall } = useCall();
   const navigate = useNavigate();
   const [actingId, setActingId] = useState<string | null>(null);
   const [confirmKick, setConfirmKick] = useState<CommunityMember | null>(null);
@@ -42,6 +46,28 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
   const [timeoutReason, setTimeoutReason] = useState('');
   const [timeoutMinutes, setTimeoutMinutes] = useState(60);
   const [profileTarget, setProfileTarget] = useState<Profile | null>(null);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+
+  // Amis acceptés du spectateur (sert au réglage de confidentialité du statut).
+  useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    sb.from('friendships')
+      .select('requester_id, addressee_id')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${me},addressee_id.eq.${me}`)
+      .then(({ data }) => {
+        if (!alive) return;
+        const ids = new Set<string>();
+        for (const f of (data ?? []) as { requester_id: string; addressee_id: string }[]) {
+          ids.add(f.requester_id === me ? f.addressee_id : f.requester_id);
+        }
+        setFriendIds(ids);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sb, me]);
 
   const myRank = myRole ? ROLE_RANK[myRole] : 0;
   const canModerate = myRank >= 2;
@@ -53,11 +79,11 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
     return (a.profiles?.display_name ?? '').localeCompare(b.profiles?.display_name ?? '');
   });
   const onlineMembers = sorted.filter((m) => {
-    const s = statusOf(m, online);
+    const s = statusOf(m, online, me, friendIds);
     return s !== 'hors_ligne' && s !== 'invisible';
   });
   const offlineMembers = sorted.filter((m) => {
-    const s = statusOf(m, online);
+    const s = statusOf(m, online, me, friendIds);
     return s === 'hors_ligne' || s === 'invisible';
   });
 
@@ -154,7 +180,7 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
 
   const renderMember = (m: CommunityMember) => {
     const p = m.profiles;
-    const st = statusOf(m, online);
+    const st = statusOf(m, online, me, friendIds);
     const targetRank = ROLE_RANK[m.role] ?? 0;
     const isMe = m.user_id === me;
     // Je peux agir si mon rang est strictement supérieur (ou propriétaire sur tout sauf lui-même)
@@ -276,7 +302,7 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
           className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink"
           aria-label="Fermer les membres"
         >
-          ✕
+          <X size={16} />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-2">
@@ -301,8 +327,21 @@ export default function CommunityMembers({ communityId, members, myRole, me, onl
         <ProfileCard
           profile={profileTarget}
           friendship={null}
-          status={online[profileTarget.id]?.status ?? 'hors_ligne'}
+          status={(() => {
+            const m = members.find((x) => x.user_id === profileTarget.id);
+            return m ? statusOf(m, online, me, friendIds) : effectiveStatus(profileTarget, me, friendIds, online[profileTarget.id]?.status ?? null);
+          })()}
           onMessage={() => openMessageTo(profileTarget)}
+          onCall={async () => {
+            const target = profileTarget;
+            setProfileTarget(null);
+            try {
+              const dmId = await openDirectDM(sb, me, target.id);
+              startCall(dmId, target, 'audio');
+            } catch {
+              flash('Appel impossible.');
+            }
+          }}
           onClose={() => setProfileTarget(null)}
         />
       )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Avatar from './Avatar';
 import type { Channel, CommunityMember, Profile } from '../lib/types';
+import { Mic, MicOff, PhoneOff, Volume2 } from 'lucide-react';
 
 /**
  * Salon vocal de communauté en mesh WebRTC (pair-à-pair, sans SFU).
@@ -332,7 +333,7 @@ export default function VoiceChannel({
         <button onClick={onBack} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink md:hidden" aria-label="Retour">
           ←
         </button>
-        <span className="text-xl">🔊</span>
+        <Volume2 size={20} />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-extrabold">{channel.name}</h2>
           <p className="text-xs text-muted">
@@ -344,7 +345,7 @@ export default function VoiceChannel({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {participants.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <span className="text-5xl">🔊</span>
+            <Volume2 size={48} />
             <p className="font-bold">Personne pour le moment</p>
             <p className="max-w-sm text-sm text-muted">Rejoins le salon pour parler avec les membres de la communauté, sans serveur dédié.</p>
           </div>
@@ -364,7 +365,7 @@ export default function VoiceChannel({
                   <Avatar profile={p.profile} size={64} />
                   <p className="w-full truncate text-center text-sm font-bold">{name}</p>
                   <p className="text-xs text-muted">
-                    {isMe ? (muted ? '🔇 Micro coupé' : isSpeaking ? '🎤 Parle…' : '🎤 En vocal') : isSpeaking ? '🎤 Parle…' : 'En vocal'}
+                    {isMe ? (muted ? 'Micro coupé' : isSpeaking ? 'Parle…' : 'En vocal') : isSpeaking ? 'Parle…' : 'En vocal'}
                   </p>
                 </div>
               );
@@ -384,7 +385,7 @@ export default function VoiceChannel({
             disabled={joining || full}
             className="rounded-2xl bg-primary px-6 py-3 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
           >
-            {joining ? 'Connexion…' : full ? 'Salon plein' : '🔊 Rejoindre le vocal'}
+            {joining ? 'Connexion…' : full ? 'Salon plein' : 'Rejoindre le vocal'}
           </button>
         ) : (
           <>
@@ -394,7 +395,7 @@ export default function VoiceChannel({
               aria-label={muted ? 'Réactiver le micro' : 'Couper le micro'}
               title={muted ? 'Réactiver le micro' : 'Couper le micro'}
             >
-              {muted ? '🔇' : '🎤'}
+              {muted ? <MicOff size={20} /> : <Mic size={20} />}
             </button>
             <button
               onClick={leave}
@@ -402,7 +403,7 @@ export default function VoiceChannel({
               aria-label="Quitter le vocal"
               title="Quitter le vocal"
             >
-              📞
+              <PhoneOff size={20} />
             </button>
           </>
         )}

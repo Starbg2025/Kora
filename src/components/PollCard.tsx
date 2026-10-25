@@ -45,7 +45,7 @@ export default function PollCard({ poll, votes, meId, flash }: Props) {
 
   return (
     <div className="mt-2 max-w-sm rounded-xl border border-line bg-surface p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">📊 Sondage</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Sondage</p>
       <div className="mt-2 space-y-1.5">
         {poll.options.map((opt, i) => {
           const pct = total ? Math.round((counts[i] / total) * 100) : 0;

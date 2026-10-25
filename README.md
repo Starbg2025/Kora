@@ -44,10 +44,23 @@ npm install
    - `VITE_SUPABASE_URL` : *Project Settings* → *Data API* → *Project URL*
    - `VITE_SUPABASE_ANON_KEY` : *Project Settings* → *Data API* → *anon public key*
    - (optionnel) `VITE_CONTACT_EMAIL` : adresse affichée sur la page `/contact`
-   - (optionnel) `VITE_TENOR_API_KEY` : clé gratuite Tenor pour l'onglet GIF
-     (console Google Cloud → activer l'API Tenor → créer une clé API, puis
-     l'ajouter dans `.env` et dans les variables Vercel). Sans elle, l'onglet
-     GIF affiche un message honnête au lieu de GIFs simulés.
+   - (optionnel) `VITE_TENOR_API_KEY` : clé gratuite Tenor pour l'onglet GIF.
+     Procédure exacte :
+     1. Console Google Cloud (console.cloud.google.com) → créer un projet
+        (ou en choisir un) → *API et services* → *Bibliothèque* → chercher
+        « Tenor API » → *Activer* → *Identifiants* → *Créer des identifiants*
+        → *Clé API* → copier la clé.
+     2. En local : l'ajouter dans `.env` (`VITE_TENOR_API_KEY=ta-cle`) et
+        redémarrer `npm run dev`.
+     3. En production (Vercel) : tableau de bord Vercel → projet `kora` →
+        *Settings* → *Environment Variables* → ajouter `VITE_TENOR_API_KEY`
+        (Production) → *Deployments* → *Redeploy* sur le dernier déploiement.
+     Sans elle, l'onglet GIF affiche un message honnête au lieu de GIFs
+     simulés. Note de sécurité : comme toute variable `VITE_*`, la clé est
+     embarquée dans le bundle JavaScript au moment du build et donc visible
+     dans le navigateur — c'est le fonctionnement prévu : les clés Tenor
+     sont conçues pour un usage côté client, ce n'est pas une clé secrète
+     serveur (ne jamais y mettre une clé Supabase `service_role`).
 
 ## Appels 1:1 (WebRTC)
 

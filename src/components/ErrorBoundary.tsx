@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { TriangleAlert } from 'lucide-react';
 
 interface State {
   error: Error | null;
@@ -23,7 +24,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
     if (this.state.error) {
       return (
         <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-base px-6 text-center text-ink">
-          <p className="text-4xl">😕</p>
+          <TriangleAlert size={40} className="mx-auto text-muted" />
           <h1 className="text-lg font-extrabold">Oups, cet écran a planté</h1>
           <p className="max-w-sm text-sm text-muted">
             {this.state.error.message || 'Erreur inconnue.'}

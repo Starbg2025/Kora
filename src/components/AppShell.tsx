@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import BottomNav from './BottomNav';
 import ServerRail from './ServerRail';
 import GlobalSearch from './GlobalSearch';
+import { X } from 'lucide-react';
 
 /** Coquille de l'application : rail des serveurs (bureau) + contenu. */
 export default function AppShell() {
@@ -36,7 +37,7 @@ export default function AppShell() {
             <span className="shrink-0 font-bold text-primary">Annonce</span>
             <p className="min-w-0 flex-1 truncate">{announcement}</p>
             <button onClick={() => setDismissed(true)} className="shrink-0 text-muted hover:text-ink" aria-label="Fermer l’annonce">
-              ✕
+              <X size={16} />
             </button>
           </div>
         )}

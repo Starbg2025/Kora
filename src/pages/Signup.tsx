@@ -87,7 +87,7 @@ export default function Signup() {
           <Logo size={44} />
           <span className="text-2xl font-extrabold">Kora</span>
         </Link>
-        <div className="rounded-3xl bg-surface p-8 shadow-xl">
+        <div className="rounded-xl bg-surface p-8 shadow-xl">
           <h1 className="text-2xl font-extrabold">Créer un compte</h1>
           <p className="mt-1 text-sm text-muted">Gratuit, en moins d’une minute.</p>
           <form onSubmit={submit} className="mt-6 space-y-4">

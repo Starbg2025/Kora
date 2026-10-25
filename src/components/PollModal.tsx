@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../context/AuthContext';
+import { X } from 'lucide-react';
 
 interface Props {
   dmId: string;
@@ -40,7 +41,7 @@ export default function PollModal({ dmId, onClose, onPublished }: Props) {
       // 1. Message porteur (la question reste lisible même sans la table des sondages)
       const { data: msg, error: msgErr } = await sb
         .from('messages')
-        .insert({ dm_id: dmId, author_id: me, content: '📊 ' + q })
+        .insert({ dm_id: dmId, author_id: me, content: q })
         .select('id')
         .single();
       if (msgErr) throw msgErr;
@@ -94,7 +95,7 @@ export default function PollModal({ dmId, onClose, onPublished }: Props) {
                 className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
               />
               {options.length > 2 && (
-                <button onClick={() => removeOption(i)} className="rounded-lg px-2 py-1 text-muted hover:bg-surface2 hover:text-danger" aria-label="Retirer ce choix">✕</button>
+                <button onClick={() => removeOption(i)} className="rounded-lg px-2 py-1 text-muted hover:bg-surface2 hover:text-danger" aria-label="Retirer ce choix"><X size={16} /></button>
               )}
             </div>
           ))}

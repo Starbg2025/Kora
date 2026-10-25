@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 
 interface Props {
   onDone: (file: File) => void;
@@ -97,7 +98,7 @@ export default function VoiceRecorder({ onDone, onCancel }: Props) {
         className="rounded-xl bg-line px-3 py-2 text-sm font-bold hover:opacity-80"
         aria-label="Annuler l’enregistrement"
       >
-        ✕
+        <X size={16} />
       </button>
       <button
         onClick={() => stop(true)}

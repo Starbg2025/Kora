@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Avatar from './Avatar';
 import type { Profile } from '../lib/types';
+import { Search, X } from 'lucide-react';
 
 /**
  * Recherche globale de messages (Ctrl/Cmd+K, ou bouton 🔍 du rail).
@@ -227,9 +228,9 @@ export default function GlobalSearch() {
   return (
     <div className="fixed inset-0 z-[75] flex items-start justify-center px-4 pt-[12dvh]" role="dialog" aria-label="Recherche globale">
       <button aria-label="Fermer" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60" />
-      <div className="relative flex max-h-[70dvh] w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-surface shadow-2xl">
+      <div className="relative flex max-h-[70dvh] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-surface shadow-2xl">
         <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <span className="shrink-0 text-muted">🔍</span>
+          <Search size={16} className="shrink-0 text-muted" />
           <input
             ref={inputRef}
             value={q}
@@ -239,7 +240,7 @@ export default function GlobalSearch() {
             aria-label="Rechercher dans tes messages"
           />
           <button onClick={() => setOpen(false)} className="shrink-0 rounded-lg px-2 py-1 text-sm text-muted hover:bg-surface2" aria-label="Fermer">
-            ✕
+            <X size={16} />
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">

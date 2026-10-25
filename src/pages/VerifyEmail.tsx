@@ -51,7 +51,7 @@ export default function VerifyEmail() {
           <Logo size={44} />
           <span className="text-2xl font-extrabold">Kora</span>
         </Link>
-        <div className="rounded-3xl bg-surface p-8 shadow-xl">
+        <div className="rounded-xl bg-surface p-8 shadow-xl">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-primary">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="2" y="4" width="20" height="16" rx="2" />

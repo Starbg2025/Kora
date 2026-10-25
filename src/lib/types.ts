@@ -16,6 +16,12 @@ export interface Profile {
   is_verified: boolean;
   is_site_admin: boolean;
   is_creator: boolean;
+  /** Liens sociaux (objet libre : website, x, youtube) — migration 20261026. */
+  social_links?: Record<string, string> | null;
+  /** Messages privés : 'friends' (amis seulement, défaut serveur) ou 'nobody'. */
+  privacy_dms?: 'friends' | 'nobody';
+  /** Visibilité du statut : 'everyone' | 'friends' | 'nobody'. */
+  privacy_status?: 'everyone' | 'friends' | 'nobody';
 }
 
 export interface UserSettings {

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { invalidateCustomEmojis } from '../lib/emojis';
 import type { Community, CommunityMember, CommunityRole, CustomEmoji, CustomSticker } from '../lib/types';
+import { Bell, BellOff, Shield, X } from 'lucide-react';
 
 interface Props {
   community: Community;
@@ -18,6 +20,7 @@ interface Props {
 /** Panneau de paramètres de la communauté (propriétaire / admin). */
 export default function CommunitySettings({ community, myRole, members, me, onClose, onChanged, flash, onOpenModeration }: Props) {
   const { sb } = useAuth();
+  const { mutedCommunities, toggleCommunityMute } = useNotifications();
   const [name, setName] = useState(community.name);
   const [description, setDescription] = useState(community.description);
   const [isPublic, setIsPublic] = useState(community.is_public);
@@ -132,6 +135,16 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
   const [renameEmojiValue, setRenameEmojiValue] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const emojiFileRef = useRef<HTMLInputElement>(null);
+  const [emojiPreview, setEmojiPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!emojiFile) {
+      setEmojiPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(emojiFile);
+    setEmojiPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [emojiFile]);
 
   const loadEmojis = async () => {
     const { data, error } = await sb.from('custom_emojis').select('*').eq('community_id', community.id).order('created_at', { ascending: false });
@@ -295,7 +308,7 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h2 className="text-lg font-extrabold">Paramètres</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-ink" aria-label="Fermer">
-            ✕
+            <X size={16} />
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
@@ -363,9 +376,25 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
               onClick={onOpenModeration}
               className="w-full rounded-xl bg-surface2 px-4 py-2.5 text-sm font-bold hover:bg-line"
             >
-              🛡️ Ouvrir la modération (signalements, bannis, journal)
+              <Shield size={16} className="mr-2 inline align-[-2px]" />Ouvrir la modération (signalements, bannis, journal)
             </button>
           )}
+
+          <label className="flex cursor-pointer items-center justify-between rounded-xl bg-surface2 px-4 py-3">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              {mutedCommunities.has(community.id) ? <BellOff size={16} className="text-muted" /> : <Bell size={16} className="text-muted" />}
+              Notifications de cette communauté
+            </span>
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={!mutedCommunities.has(community.id)}
+              onChange={() => toggleCommunityMute(community.id)}
+            />
+            <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${mutedCommunities.has(community.id) ? 'bg-line' : 'bg-primary'}`}>
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${mutedCommunities.has(community.id) ? 'left-0.5' : 'left-[22px]'}`} />
+            </span>
+          </label>
 
           <div className="rounded-2xl border border-line p-4">
             <h3 className="font-bold">Autocollants du serveur</h3>
@@ -384,7 +413,7 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
                 onClick={() => stickerFileRef.current?.click()}
                 className="shrink-0 rounded-xl bg-surface2 px-3 py-2 text-sm font-semibold hover:bg-line"
               >
-                {stickerFile ? '🖼️ Choisie' : 'Choisir…'}
+                {stickerFile ? 'Choisie' : 'Choisir…'}
               </button>
               <input
                 ref={stickerFileRef}
@@ -468,7 +497,10 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
                   dragOver ? 'border-primary bg-primary/10' : 'border-line bg-surface2/50'
                 }`}
               >
-                <p className="text-sm font-semibold">{emojiFile ? `🖼️ ${emojiFile.name}` : 'Glisse une image ici, ou choisis un fichier'}</p>
+                <p className="text-sm font-semibold">{emojiFile ? emojiFile.name : 'Glisse une image ici, ou choisis un fichier'}</p>
+                {emojiPreview && (
+                  <img src={emojiPreview} alt="Aperçu de l’émoji" className="mx-auto mt-2 h-12 w-12 rounded-lg object-contain" />
+                )}
                 <p className="mt-1 text-xs text-muted">PNG, JPG, WebP ou GIF animé — 1 Mo maximum</p>
                 <button
                   onClick={() => emojiFileRef.current?.click()}
@@ -527,7 +559,7 @@ export default function CommunitySettings({ community, myRole, members, me, onCl
                         ) : (
                           <>
                             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                              :{e.name}:{e.animated ? ' 🎞️' : ''}
+                              :{e.name}:{e.animated ? ' · GIF' : ''}
                             </span>
                             <button
                               onClick={() => { setRenamingEmoji(e.id); setRenameEmojiValue(e.name); }}

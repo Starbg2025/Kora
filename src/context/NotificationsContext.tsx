@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AtSign, MessageCircle, Phone, UserPlus, Users, MailPlus, type LucideIcon } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import type { AppNotification, NotificationType, UserSettings } from '../lib/types';
 
@@ -9,8 +10,15 @@ interface NotificationsCtxValue {
   loading: boolean;
   markAsRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
   notify: (type: NotificationType, title: string, body?: string, link?: string | null) => Promise<void>;
   refresh: () => Promise<void>;
+  mutedCommunities: Set<string>;
+  toggleCommunityMute: (communityId: string) => Promise<void>;
+  soundEnabled: boolean;
+  setSoundEnabled: (v: boolean) => void;
+  browserEnabled: boolean;
+  setBrowserEnabled: (v: boolean) => void;
 }
 
 const NotificationsCtx = createContext<NotificationsCtxValue>({
@@ -19,8 +27,15 @@ const NotificationsCtx = createContext<NotificationsCtxValue>({
   loading: true,
   markAsRead: async () => {},
   markAllRead: async () => {},
+  deleteNotification: async () => {},
   notify: async () => {},
   refresh: async () => {},
+  mutedCommunities: new Set(),
+  toggleCommunityMute: async () => {},
+  soundEnabled: false,
+  setSoundEnabled: () => {},
+  browserEnabled: false,
+  setBrowserEnabled: () => {},
 });
 
 export const useNotifications = () => useContext(NotificationsCtx);
@@ -34,13 +49,13 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   communaute: 'Communauté',
 };
 
-const TYPE_ICONS: Record<NotificationType, string> = {
-  message: '💬',
-  mention: '📣',
-  demande_ami: '👋',
-  invitation: '✉️',
-  appel: '📞',
-  communaute: '🏘️',
+const TYPE_ICONS: Record<NotificationType, LucideIcon> = {
+  message: MessageCircle,
+  mention: AtSign,
+  demande_ami: UserPlus,
+  invitation: MailPlus,
+  appel: Phone,
+  communaute: Users,
 };
 
 export { TYPE_LABELS, TYPE_ICONS };
@@ -72,6 +87,109 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastTimer = useRef<number | null>(null);
+  const [mutedCommunities, setMutedCommunities] = useState<Set<string>>(new Set());
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('kora:notif-sound') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [browserEnabled, setBrowserEnabledState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('kora:notif-browser') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const setSoundEnabled = useCallback((v: boolean) => {
+    setSoundEnabledState(v);
+    try {
+      localStorage.setItem('kora:notif-sound', v ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+  }, []);
+
+  const setBrowserEnabled = useCallback(async (v: boolean) => {
+    setBrowserEnabledState(v);
+    try {
+      localStorage.setItem('kora:notif-browser', v ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+    if (v && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch {
+        /* refusé */
+      }
+    }
+  }, []);
+
+  // Bip discret (WebAudio, aucun fichier) quand une notification arrive.
+  const playBlip = useCallback(() => {
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.2);
+      osc.onended = () => void ctx.close();
+    } catch {
+      /* audio indisponible */
+    }
+  }, []);
+
+  const refreshMutes = useCallback(async () => {
+    if (!user) {
+      setMutedCommunities(new Set());
+      return;
+    }
+    try {
+      const { data } = await sb.from('community_mutes').select('community_id').eq('user_id', user.id);
+      setMutedCommunities(new Set(((data ?? []) as { community_id: string }[]).map((r) => r.community_id)));
+    } catch {
+      // Table absente (migration non exécutée) : aucune sourdine, jamais d'erreur visible.
+      setMutedCommunities(new Set());
+    }
+  }, [sb, user]);
+
+  useEffect(() => {
+    refreshMutes();
+  }, [refreshMutes]);
+
+  const toggleCommunityMute = useCallback(
+    async (communityId: string) => {
+      if (!user) return;
+      const muted = mutedCommunities.has(communityId);
+      setMutedCommunities((prev) => {
+        const next = new Set(prev);
+        if (muted) next.delete(communityId);
+        else next.add(communityId);
+        return next;
+      });
+      try {
+        if (muted) {
+          await sb.from('community_mutes').delete().eq('user_id', user.id).eq('community_id', communityId);
+        } else {
+          await sb.from('community_mutes').insert({ user_id: user.id, community_id: communityId });
+        }
+      } catch {
+        await refreshMutes();
+      }
+    },
+    [sb, user, mutedCommunities, refreshMutes],
+  );
 
   const refresh = useCallback(async () => {
     if (!user) {
@@ -100,13 +218,29 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const pushToast = useCallback((t: Toast) => {
-    // Pas de toast si l'utilisateur est déjà sur la cible
-    if (t.link && window.location.pathname.startsWith(t.link.split('?')[0])) return;
-    setToasts((prev) => [...prev.slice(-2), t]);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToasts([]), 4500);
-  }, []);
+  const pushToast = useCallback(
+    (t: Toast) => {
+      // Pas de toast si l'utilisateur est déjà sur la cible
+      if (t.link && window.location.pathname.startsWith(t.link.split('?')[0])) return;
+      setToasts((prev) => [...prev.slice(-2), t]);
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      toastTimer.current = window.setTimeout(() => setToasts([]), 4500);
+      if (soundEnabled) playBlip();
+      if (browserEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+        try {
+          const notif = new Notification(t.title, { body: t.body || undefined });
+          notif.onclick = () => {
+            window.focus();
+            if (t.link) navigate(t.link);
+            notif.close();
+          };
+        } catch {
+          /* notifications navigateur indisponibles */
+        }
+      }
+    },
+    [soundEnabled, browserEnabled, playBlip, navigate],
+  );
 
   // Temps réel : nouvelles notifications (canal unique par instance)
   useEffect(() => {
@@ -149,6 +283,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       // silencieux
     }
   }, [sb, user]);
+
+  const deleteNotification = useCallback(
+    async (id: string) => {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      try {
+        await sb.from('notifications').delete().eq('id', id);
+      } catch {
+        await refresh();
+      }
+    },
+    [sb, refresh],
+  );
 
   const notify = useCallback(
     async (type: NotificationType, title: string, body = '', link: string | null = null) => {
@@ -207,7 +353,24 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <NotificationsCtx.Provider value={{ notifications, unreadCount, loading, markAsRead, markAllRead, notify, refresh }}>
+    <NotificationsCtx.Provider
+      value={{
+        notifications,
+        unreadCount,
+        loading,
+        markAsRead,
+        markAllRead,
+        deleteNotification,
+        notify,
+        refresh,
+        mutedCommunities,
+        toggleCommunityMute,
+        soundEnabled,
+        setSoundEnabled,
+        browserEnabled,
+        setBrowserEnabled,
+      }}
+    >
       {children}
       {/* Toasts de notification */}
       <div className="pointer-events-none fixed inset-x-0 bottom-[76px] z-[60] flex flex-col items-center gap-2 px-4 md:bottom-6" aria-live="polite">
