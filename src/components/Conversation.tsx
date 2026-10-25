@@ -18,6 +18,7 @@ import { formatDay, formatFull, formatTime } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { isDevMode } from '../lib/devMode';
 import { openDirectDM } from '../lib/dm';
+import { escapeIlike } from '../lib/mentions';
 import { STATUS_LABELS, type DM, type DMMemberRow, type Friendship, type Message, type MessagePin, type MessagePoll, type MessagePollVote, type MessageReaction, type Profile } from '../lib/types';
 import MessageContent from './MessageContent';
 import VerifiedBadge from './VerifiedBadge';
@@ -225,6 +226,36 @@ export default function Conversation() {
     if (m.profiles) profilesById.set(m.user_id, m.profiles);
   }
   const friend = !dm?.is_group ? members.find((m) => m.user_id !== me)?.profiles ?? null : null;
+
+  // Pseudos connus de cette conversation (surlignage des @mentions).
+  const mentionNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of members) {
+      const u = m.profiles?.username;
+      if (u) set.add(u.toLowerCase());
+    }
+    return set;
+  }, [members]);
+
+  // Clic sur un @pseudo dans un message → fiche profil (membre d'abord, sinon
+  // recherche par pseudo ; rien si introuvable).
+  const openMentionProfile = useCallback(
+    async (username: string) => {
+      const lower = username.toLowerCase();
+      const local = members.find((m) => m.profiles?.username?.toLowerCase() === lower)?.profiles ?? null;
+      if (local) {
+        setProfileTarget(local);
+        setShowProfile(true);
+        return;
+      }
+      const { data } = await sb.from('profiles').select('*').ilike('username', escapeIlike(username)).maybeSingle();
+      if (data) {
+        setProfileTarget(data as Profile);
+        setShowProfile(true);
+      }
+    },
+    [sb, members],
+  );
   const pinnedIds = useMemo(() => new Set(pins.map((x) => x.message_id)), [pins]);
 
   const flash = (msg: string) => {
@@ -1314,7 +1345,13 @@ export default function Conversation() {
                         </div>
                       ) : (
                         <>
-                          {m.content && <MessageContent content={m.content} />}
+                          {m.content && (
+                            <MessageContent
+                              content={m.content}
+                              mentionNames={mentionNames}
+                              onMentionClick={openMentionProfile}
+                            />
+                          )}
                           {m.attachment_path && <Attachment path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
                           {translateId === m.id && m.content && (
                             <TranslateBlock content={m.content} onClose={() => setTranslateId(null)} />

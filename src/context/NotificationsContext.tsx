@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AtSign, MessageCircle, Phone, UserPlus, Users, MailPlus, type LucideIcon } from 'lucide-react';
 import { useAuth } from './AuthContext';
+import { containsEveryone, containsMention, snippet } from '../lib/mentions';
 import type { AppNotification, NotificationType, UserSettings } from '../lib/types';
 
 interface NotificationsCtxValue {
@@ -82,7 +83,20 @@ interface Toast {
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { sb, user, settings, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const tag = useId().replace(/[^a-zA-Z0-9]/g, '');
+  // Refs miroirs : l'observateur global des mentions lit l'état courant sans
+  // réabonner le canal realtime à chaque navigation ou changement de réglage.
+  const locationRef = useRef(location.pathname);
+  useEffect(() => {
+    locationRef.current = location.pathname;
+  }, [location.pathname]);
+  const mutedCommunitiesRef = useRef<Set<string>>(new Set());
+  const dmMuteRef = useRef<string[]>([]);
+  const usernameRef = useRef<string | null>(null);
+  useEffect(() => {
+    usernameRef.current = profile?.username ?? null;
+  }, [profile?.username]);
   // Statut « Ne pas déranger » : les alertes (sons, notifications navigateur,
   // toasts) sont coupées, mais les notifications restent dans la boîte de
   // réception — rien n'est perdu. Ref pour ne pas réabonner le canal realtime
@@ -96,6 +110,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastTimer = useRef<number | null>(null);
   const [mutedCommunities, setMutedCommunities] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    mutedCommunitiesRef.current = mutedCommunities;
+  }, [mutedCommunities]);
+  useEffect(() => {
+    dmMuteRef.current = settings?.dm_mute ?? [];
+  }, [settings?.dm_mute]);
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => {
     try {
       return localStorage.getItem('kora:notif-sound') === '1';
@@ -231,6 +251,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       // Ne pas déranger : aucune alerte (ni son, ni navigateur, ni toast).
       // La notification reste dans la boîte de réception.
       if (dndRef.current) return;
+      // Application au premier plan : pas d'interruption (ni toast, ni son).
+      // La ligne de notification est quand même créée (notify() + liste temps
+      // réel) : la boîte de réception ne perd rien, seul le surgissement est
+      // réservé aux onglets cachés.
+      if (!document.hidden) return;
       // Pas de toast si l'utilisateur est déjà sur la cible (ancre ignorée).
       if (t.link && window.location.pathname.startsWith(t.link.split('?')[0].split('#')[0])) return;
       setToasts((prev) => [...prev.slice(-2), t]);
@@ -353,6 +378,94 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  // Observateur global des mentions (et des MPs) : monté une fois quand
+  // l'utilisateur est authentifié, il remplace les anciens déclencheurs
+  // étroits (ChannelView ne voyait que le salon ouvert dans un onglet caché,
+  // DMs.tsx que la section MPs). RLS ne délivre que les lignes lisibles
+  // (canaux dont je suis membre, MPs dont je suis participant) : la mention
+  // notifie désormais même si je suis sur un autre salon, une autre page, ou
+  // si j'ouvre l'app plus tard (la ligne est créée dès l'INSERT reçu).
+  useEffect(() => {
+    if (!user) return;
+    const me = user.id;
+
+    // Conversation regardée, lue depuis l'URL (ref, sans réabonner).
+    const viewingDm = (dmId: string) => locationRef.current === `/app/dm/${dmId}`;
+    const viewingChannel = (communityId: string, channelId: string) =>
+      locationRef.current === `/app/c/${communityId}/${channelId}`;
+
+    const authorName = async (authorId: string) => {
+      const { data } = await sb
+        .from('profiles')
+        .select('display_name, username')
+        .eq('id', authorId)
+        .maybeSingle();
+      const p = data as { display_name: string | null; username: string | null } | null;
+      return p?.display_name || p?.username || 'Quelqu’un';
+    };
+
+    const onCommunityMessage = async (m: {
+      id: string;
+      channel_id: string;
+      author_id: string;
+      content: string;
+    }) => {
+      if (m.author_id === me) return;
+      const username = usernameRef.current;
+      const isMention = !!username && containsMention(m.content, username);
+      const isEveryone = containsEveryone(m.content);
+      if (!isMention && !isEveryone) return;
+      // La ligne ne porte pas community_id : résolution via le salon.
+      const { data: ch } = await sb
+        .from('channels')
+        .select('id, name, community_id')
+        .eq('id', m.channel_id)
+        .maybeSingle();
+      const channel = ch as { id: string; name: string; community_id: string } | null;
+      if (!channel) return;
+      if (mutedCommunitiesRef.current.has(channel.community_id)) return;
+      if (viewingChannel(channel.community_id, channel.id)) return;
+      const name = await authorName(m.author_id);
+      const title = isEveryone
+        ? `${name} a mentionné tout le monde dans #${channel.name}`
+        : `${name} t’a mentionné dans #${channel.name}`;
+      await notify(
+        'mention',
+        title,
+        snippet(m.content),
+        `/app/c/${channel.community_id}/${channel.id}#msg-${m.id}`,
+      );
+    };
+
+    const onDmMessage = async (m: { id: string; dm_id: string; author_id: string; content: string }) => {
+      if (m.author_id === me) return;
+      if (viewingDm(m.dm_id)) return;
+      if (dmMuteRef.current.includes(m.dm_id)) return;
+      const name = await authorName(m.author_id);
+      const username = usernameRef.current;
+      if (username && containsMention(m.content, username)) {
+        await notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}#msg-${m.id}`);
+      } else {
+        await notify('message', `${name} t’a envoyé un message`, snippet(m.content), `/app/dm/${m.dm_id}`);
+      }
+    };
+
+    const ch = sb
+      .channel(`mention-watch-${tag}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_messages' }, (payload) => {
+        void onCommunityMessage(
+          payload.new as { id: string; channel_id: string; author_id: string; content: string },
+        );
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        void onDmMessage(payload.new as { id: string; dm_id: string; author_id: string; content: string });
+      })
+      .subscribe();
+    return () => {
+      ch.unsubscribe();
+    };
+  }, [sb, user?.id, tag, notify]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openToast = (t: Toast) => {
     setToasts((prev) => prev.filter((x) => x.id !== t.id));

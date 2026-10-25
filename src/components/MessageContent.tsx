@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCustomEmojis, type CustomEmojiEntry } from '../lib/emojis';
 
@@ -107,14 +107,83 @@ function renderTextWithEmojis(text: string, keyPrefix: string, map: Map<string, 
   });
 }
 
+// Tokens @pseudo / @everyone. Le surlignage est volontairement conservateur :
+// @everyone toujours, @pseudo uniquement si le pseudo figure dans la liste des
+// pseudos connus de la conversation (évite de surligner les emails).
+const MENTION_SPLIT_RE = /(@everyone|@[A-Za-z0-9_.-]+)/gi;
+
 /**
- * Contenu d'un message : texte avec liens cliquables, aperçus YouTube (oEmbed)
- * et images distantes (ex. GIF Tenor) affichées directement.
+ * Mentions d'abord, émojis ensuite (les deux syntaxes ne se croisent pas).
+ * Clic sur un @pseudo connu → onMentionClick si la vue le gère, sinon simple
+ * surlignage. @everyone n'a pas de fiche : surlignage seul.
+ */
+function renderTextWithMentions(
+  text: string,
+  keyPrefix: string,
+  emojiMap: Map<string, CustomEmojiEntry>,
+  nameSet: Set<string> | null,
+  onMentionClick?: (username: string) => void,
+): ReactNode[] {
+  const parts = text.split(MENTION_SPLIT_RE);
+  return parts.map((seg, j) => {
+    if (j % 2 === 1) {
+      if (seg.toLowerCase() === '@everyone') {
+        return (
+          <span key={`${keyPrefix}-m${j}`} className="font-bold text-primary">
+            {seg}
+          </span>
+        );
+      }
+      const uname = seg.slice(1).toLowerCase();
+      if (nameSet && nameSet.has(uname)) {
+        if (onMentionClick) {
+          const raw = seg.slice(1);
+          return (
+            <button
+              key={`${keyPrefix}-m${j}`}
+              type="button"
+              onClick={() => onMentionClick(raw)}
+              className="font-bold text-primary hover:underline"
+            >
+              {seg}
+            </button>
+          );
+        }
+        return (
+          <span key={`${keyPrefix}-m${j}`} className="font-bold text-primary">
+            {seg}
+          </span>
+        );
+      }
+      return <span key={`${keyPrefix}-m${j}`}>{seg}</span>;
+    }
+    return <span key={`${keyPrefix}-m${j}`}>{renderTextWithEmojis(seg, `${keyPrefix}-e${j}`, emojiMap)}</span>;
+  });
+}
+
+/**
+ * Contenu d'un message : texte avec liens cliquables, mentions surlignées
+ * (@everyone toujours, @pseudo si connu dans cette conversation), aperçus
+ * YouTube (oEmbed) et images distantes (ex. GIF Tenor) affichées directement.
  * Jamais de HTML brut : tout passe par React, aucun risque XSS.
  */
-export default function MessageContent({ content }: { content: string }) {
+export default function MessageContent({
+  content,
+  mentionNames,
+  onMentionClick,
+}: {
+  content: string;
+  /** Pseudos connus dans cette conversation (insensibles à la casse). */
+  mentionNames?: ReadonlySet<string> | string[];
+  /** Clic sur un @pseudo connu (fiche profil), si la vue le gère. */
+  onMentionClick?: (username: string) => void;
+}) {
   const { sb } = useAuth();
   const emojiMap = useCustomEmojis(sb);
+  const nameSet = useMemo(() => {
+    if (!mentionNames) return null;
+    return new Set(Array.from(mentionNames, (n) => n.toLowerCase()));
+  }, [mentionNames]);
   const trimmed = content.trim();
   // Message constitué d'une seule URL d'image → afficher l'image (ex. GIF envoyé).
   if (/^https?:\/\/\S+$/.test(trimmed) && IMAGE_EXT_RE.test(trimmed) && !isYouTubeUrl(trimmed)) {
@@ -130,7 +199,8 @@ export default function MessageContent({ content }: { content: string }) {
   return (
     <span className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
       {parts.map((part, i) => {
-        if (!/^https?:\/\//.test(part)) return <span key={i}>{renderTextWithEmojis(part, `p${i}`, emojiMap)}</span>;
+        if (!/^https?:\/\//.test(part))
+          return <span key={i}>{renderTextWithMentions(part, `p${i}`, emojiMap, nameSet, onMentionClick)}</span>;
         const yt = isYouTubeUrl(part);
         if (yt) return <YouTubeCard key={i} url={part} />;
         return (

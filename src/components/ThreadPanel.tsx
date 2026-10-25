@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { requireSupabase } from '../lib/supabase';
 import { formatTime } from '../lib/format';
+import MessageContent from './MessageContent';
 
 interface ReplyRow {
   id: string;
@@ -109,7 +110,13 @@ export default function ThreadPanel(p: Props) {
                   <span className="font-bold">{p.resolveName(r.author_id)}</span>
                   <span className="ml-2 text-xs text-muted">{formatTime(r.created_at)}</span>
                 </p>
-                <p className="mt-0.5 text-sm leading-relaxed">{r.content || r.attachment_name || 'Pièce jointe'}</p>
+                <p className="mt-0.5 text-sm leading-relaxed">
+                  {r.content ? (
+                    <MessageContent content={r.content} />
+                  ) : (
+                    r.attachment_name || 'Pièce jointe'
+                  )}
+                </p>
               </li>
             ))}
           </ul>

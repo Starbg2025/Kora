@@ -11,7 +11,6 @@ import ProfileCard from '../components/ProfileCard';
 import { formatShort } from '../lib/format';
 import { getPinnedDMs, setPinnedDMs } from '../lib/dmPrefs';
 import { openDirectDM } from '../lib/dm';
-import { containsMention, snippet } from '../lib/mentions';
 import { useNotifications } from '../context/NotificationsContext';
 import { STATUS_LABELS, type DM, type Friendship, type Message, type Profile } from '../lib/types';
 import { Bell, BellOff, Eye, Inbox, LogOut, Pin, Search, Settings, User, Users } from 'lucide-react';
@@ -60,7 +59,7 @@ export default function DMs() {
   const { startCall } = useCall();
   const { online } = usePresence();
   const { entries } = useFriends();
-  const { notify, unreadCount } = useNotifications();
+  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const match = useMatch('/app/dm/:dmId');
@@ -86,8 +85,6 @@ export default function DMs() {
 
   const me = user?.id ?? '';
   const mutedIds = new Set(settings?.dm_mute ?? []);
-  const mutedRef = useRef<Set<string>>(new Set());
-  mutedRef.current = new Set(settings?.dm_mute ?? []);
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
   const pendingRequests = entries.filter(
     (e) => e.friendship.status === 'pending' && e.friendship.addressee_id === me,
@@ -199,25 +196,9 @@ export default function DMs() {
           next[idx] = v;
           return next;
         });
-        // Déclencheur : message reçu dans une discussion qu'on ne regarde pas
-        // (et non mise en sourdine) → notification. Mention → type mention,
-        // sinon type message. Jamais de notification pour ses propres messages
-        // ni pour la discussion ouverte.
-        if (m.author_id !== me && m.dm_id !== openDmId && !mutedRef.current.has(m.dm_id)) {
-          sb.from('profiles')
-            .select('display_name, username')
-            .eq('id', m.author_id)
-            .maybeSingle()
-            .then(({ data }) => {
-              const p = data as { display_name: string; username: string } | null;
-              const name = p?.display_name || p?.username || 'Quelqu’un';
-              if (profile?.username && containsMention(m.content, profile.username)) {
-                notify('mention', `${name} t’a mentionné`, snippet(m.content), `/app/dm/${m.dm_id}#msg-${m.id}`);
-              } else {
-                notify('message', `${name} t’a envoyé un message`, snippet(m.content), `/app/dm/${m.dm_id}`);
-              }
-            });
-        }
+        // Les notifications (message et mention) sont gérées par l'observateur
+        // global (NotificationsProvider) : pas de déclencheur ici, sinon
+        // doublons dès qu'on quitte puis revient sur la section MPs.
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_members', filter: `user_id=eq.${me}` }, () => load())
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dms' }, (payload) => {
@@ -228,7 +209,7 @@ export default function DMs() {
     return () => {
       ch.unsubscribe();
     };
-  }, [sb, me, openDmId, load, channelTag, notify, profile?.username]);
+  }, [sb, me, openDmId, load, channelTag]);
 
   const dmTitle = (v: DMView) => {
     if (v.dm.is_group) return v.dm.name || 'Groupe sans nom';

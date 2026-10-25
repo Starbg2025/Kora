@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationsContext';
-import { containsMention, snippet } from '../lib/mentions';
+import { usePresence } from '../context/PresenceContext';
 import { isDevMode } from '../lib/devMode';
+import { openDirectDM } from '../lib/dm';
+import { escapeIlike } from '../lib/mentions';
 import Avatar from './Avatar';
 import EmojiPicker from './EmojiPicker';
+import ProfileCard from './ProfileCard';
 import VerifiedBadge from './VerifiedBadge';
 import MessageContent from './MessageContent';
 import MessageToolbar from './MessageToolbar';
@@ -86,8 +89,7 @@ function AttachmentView({ path, name }: { path: string; name: string }) {
 
 /** Vue d'un salon textuel : messages temps réel, réactions, épinglés, pièces jointes. */
 export default function ChannelView({ communityId, channel, myRole, members, onToggleMembers, onToggleChannels, onBack }: Props) {
-  const { sb, user, profile } = useAuth();
-  const { notify, mutedCommunities } = useNotifications();
+  const { sb, user } = useAuth();
   const channelTag = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
@@ -139,6 +141,45 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
     for (const m of members) if (m.profiles) map.set(m.user_id, m.profiles);
     return map;
   }, [members]);
+
+  // Pseudos connus de cette communauté (surlignage des @mentions).
+  const mentionNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of profilesById.values()) if (p.username) set.add(p.username.toLowerCase());
+    return set;
+  }, [profilesById]);
+
+  // Fiche profil ouverte depuis un @pseudo cliqué dans un message.
+  const navigate = useNavigate();
+  const { online } = usePresence();
+  const [mentionProfile, setMentionProfile] = useState<Profile | null>(null);
+  const openMentionProfile = useCallback(
+    async (username: string) => {
+      const lower = username.toLowerCase();
+      for (const p of profilesById.values()) {
+        if (p.username?.toLowerCase() === lower) {
+          setMentionProfile(p);
+          return;
+        }
+      }
+      const { data } = await sb.from('profiles').select('*').ilike('username', escapeIlike(username)).maybeSingle();
+      if (data) setMentionProfile(data as Profile);
+      // Sinon : rien (repli prévu — pas de fiche inventée).
+    },
+    [sb, profilesById],
+  );
+  const openMentionMessage = useCallback(
+    async (target: Profile) => {
+      try {
+        const dmId = await openDirectDM(sb, me, target.id);
+        setMentionProfile(null);
+        navigate(`/app/dm/${dmId}`);
+      } catch {
+        flash('Message impossible.');
+      }
+    },
+    [sb, me, navigate],
+  );
   const rolesById = useMemo(() => {
     const map = new Map<string, CommunityRole>();
     for (const m of members) map.set(m.user_id, m.role);
@@ -261,26 +302,8 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
           return next;
         });
         if (nearBottom()) requestAnimationFrame(() => scrollToBottom());
-        // Déclencheur : mention @pseudo → notification, sauf si le salon est
-        // regardé dans un onglet visible (on lit déjà le message) ou si la
-        // communauté est en sourdine.
-        if (
-          m.author_id !== me &&
-          profile?.username &&
-          containsMention(m.content, profile.username) &&
-          !mutedCommunities.has(communityId) &&
-          document.hidden
-        ) {
-          sb.from('profiles')
-            .select('display_name, username')
-            .eq('id', m.author_id)
-            .maybeSingle()
-            .then(({ data }) => {
-              const p = data as { display_name: string; username: string } | null;
-              const name = p?.display_name || p?.username || 'Quelqu’un';
-              notify('mention', `${name} t’a mentionné dans #${channel.name}`, snippet(m.content), `/app/c/${communityId}/${channel.id}#msg-${m.id}`);
-            });
-        }
+        // Les notifications de mention sont gérées par l'observateur global
+        // (NotificationsProvider) : pas de déclencheur ici, sinon doublons.
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'community_messages', filter: `channel_id=eq.${channel.id}` }, (payload) => {
         const m = payload.new as CommunityMessage;
@@ -306,7 +329,7 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
       window.clearTimeout(degradedTimer);
       ch.unsubscribe();
     };
-  }, [sb, channel.id, me, channelTag, notify, profile?.username, communityId, channel.name]);
+  }, [sb, channel.id, me, channelTag]);
 
   // Filet de sécurité : rafraîchissement automatique si le temps réel est en panne.
   useEffect(() => {
@@ -765,7 +788,13 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
                         </div>
                       ) : (
                         <>
-                          {m.content && <MessageContent content={m.content} />}
+                          {m.content && (
+                            <MessageContent
+                              content={m.content}
+                              mentionNames={mentionNames}
+                              onMentionClick={openMentionProfile}
+                            />
+                          )}
                           {m.attachment_path && <AttachmentView path={m.attachment_path} name={m.attachment_name ?? 'fichier'} />}
                           {translateId === m.id && m.content && (
                             <TranslateBlock content={m.content} onClose={() => setTranslateId(null)} />
@@ -1095,6 +1124,16 @@ export default function ChannelView({ communityId, channel, myRole, members, onT
             onClose={() => setThreadParent(null)}
           />
         </div>
+      )}
+
+      {mentionProfile && (
+        <ProfileCard
+          profile={mentionProfile}
+          friendship={null}
+          status={online[mentionProfile.id]?.status ?? 'hors_ligne'}
+          onMessage={() => openMentionMessage(mentionProfile)}
+          onClose={() => setMentionProfile(null)}
+        />
       )}
     </div>
   );
