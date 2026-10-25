@@ -9,12 +9,12 @@ import { ROLE_LABELS, type ServerFolder, type ServerFolderItem } from '../lib/ty
 
 function CommunityIcon({ name, iconUrl, size = 56 }: { name: string; iconUrl: string | null; size?: number }) {
   if (iconUrl) {
-    return <img src={iconUrl} alt={name} style={{ width: size, height: size }} className="rounded-2xl object-cover" />;
+    return <img src={iconUrl} alt={name} style={{ width: size, height: size }} className="shrink-0 rounded-2xl object-cover" />;
   }
   return (
     <div
       style={{ width: size, height: size }}
-      className="flex items-center justify-center rounded-2xl bg-primary/20 text-2xl font-extrabold text-primary"
+      className="flex shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-2xl font-extrabold text-primary"
     >
       {name.trim()[0]?.toUpperCase() ?? '?'}
     </div>
@@ -31,6 +31,9 @@ export default function Communities() {
   const [moveTarget, setMoveTarget] = useState<{ id: string; name: string } | null>(null);
   const [folderEditor, setFolderEditor] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [folderMenu, setFolderMenu] = useState<ServerFolder | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [confirmFolderDelete, setConfirmFolderDelete] = useState(false);
   const navigate = useNavigate();
   const me = user?.id ?? '';
 
@@ -75,6 +78,25 @@ export default function Communities() {
     await loadFolders();
   };
 
+  const renameFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!folderMenu) return;
+    const name = renameName.trim().slice(0, 40);
+    if (!name) return;
+    await sb.from('server_folders').update({ name }).eq('id', folderMenu.id);
+    setFolderMenu(null);
+    await loadFolders();
+  };
+
+  const deleteFolder = async () => {
+    if (!folderMenu) return;
+    await sb.from('server_folder_items').delete().eq('folder_id', folderMenu.id);
+    await sb.from('server_folders').delete().eq('id', folderMenu.id);
+    setConfirmFolderDelete(false);
+    setFolderMenu(null);
+    await loadFolders();
+  };
+
   const row = (c: (typeof communities)[number]) => (
     <li key={c.id} className="flex items-center gap-2">
       <button
@@ -106,24 +128,24 @@ export default function Communities() {
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-extrabold">Communautés</h1>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="min-w-0 text-xl font-extrabold sm:text-2xl">Communautés</h1>
+        <div className="flex flex-wrap gap-2">
           <Link
             to="/app/decouvrir"
-            className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+            className="shrink-0 whitespace-nowrap rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
           >
             Découvrir
           </Link>
           <button
             onClick={() => setFolderEditor(true)}
-            className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+            className="shrink-0 whitespace-nowrap rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
           >
             Nouveau dossier
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90"
+            className="shrink-0 whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90"
           >
             ＋ Créer
           </button>
@@ -149,16 +171,55 @@ export default function Communities() {
               .filter((i) => i.folder_id === f.id)
               .map((i) => communities.find((c) => c.id === i.community_id))
               .filter((c) => !!c);
-            if (items.length === 0) return null;
             return (
               <section key={f.id}>
-                <h2 className="mb-2 px-1 text-sm font-bold uppercase tracking-wide text-muted">
-                  {f.name} · {items.length}
-                </h2>
-                <ul className="space-y-2">{items.map(row)}</ul>
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <h2 className="min-w-0 truncate text-sm font-bold uppercase tracking-wide text-muted">
+                    {f.name} · {items.length}
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setFolderMenu(f);
+                      setRenameName(f.name);
+                      setConfirmFolderDelete(false);
+                    }}
+                    className="shrink-0 rounded-lg px-2 py-1 text-lg leading-none text-muted hover:bg-surface2"
+                    aria-label={`Gérer le dossier ${f.name}`}
+                    title="Gérer le dossier"
+                  >
+                    ⋯
+                  </button>
+                </div>
+                {items.length === 0 ? (
+                  <p className="px-1 text-sm text-muted">
+                    Aucune communauté dans ce dossier — utilise ⋯ sur une communauté pour l’y déplacer.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">{items.map(row)}</ul>
+                )}
               </section>
             );
           })}
+          <div className="rounded-2xl border border-dashed border-line px-4 py-4">
+            <p className="text-sm font-semibold">Envie de plus de monde ?</p>
+            <p className="mt-1 text-sm text-muted">
+              Découvre des communautés publiques ou crée la tienne pour inviter tes amis.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                to="/app/decouvrir"
+                className="rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold hover:bg-line"
+              >
+                Découvrir
+              </Link>
+              <button
+                onClick={() => setShowCreate(true)}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white hover:opacity-90"
+              >
+                ＋ Créer une communauté
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -195,6 +256,52 @@ export default function Communities() {
         </Modal>
       )}
 
+      {folderMenu && (
+        <Modal title="Gérer le dossier" onClose={() => setFolderMenu(null)}>
+          <form onSubmit={renameFolder} className="space-y-4">
+            <label className="block">
+              <span className="text-sm font-semibold">Nom du dossier</span>
+              <input
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                maxLength={40}
+                className="mt-1 w-full rounded-xl bg-base px-3 py-2 text-sm outline-none ring-primary focus:ring-2"
+              />
+            </label>
+            <button type="submit" className="w-full rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white">
+              Renommer
+            </button>
+          </form>
+          {!confirmFolderDelete ? (
+            <button
+              onClick={() => setConfirmFolderDelete(true)}
+              className="mt-3 w-full rounded-xl bg-danger/15 px-4 py-2 text-sm font-bold text-danger"
+            >
+              Supprimer le dossier
+            </button>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-muted">
+                Supprimer ce dossier ? Les communautés qu’il contient resteront dans ta liste, hors dossier.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={deleteFolder}
+                  className="flex-1 rounded-xl bg-danger px-4 py-2 text-sm font-bold text-white"
+                >
+                  Oui, supprimer
+                </button>
+                <button
+                  onClick={() => setConfirmFolderDelete(false)}
+                  className="flex-1 rounded-xl bg-surface2 px-4 py-2 text-sm font-semibold"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
       {folderEditor && (
         <Modal title="Nouveau dossier" onClose={() => setFolderEditor(false)}>
           <form onSubmit={createFolder} className="space-y-4">

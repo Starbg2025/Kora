@@ -13,7 +13,7 @@ import CreateCommunityModal from './CreateCommunityModal';
 import JoinCommunityModal from './JoinCommunityModal';
 import InviteModal from './InviteModal';
 import ContextMenu, { ContextMenuItem } from './ContextMenu';
-import { ChevronDown, ChevronRight, FolderPlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clapperboard, FolderPlus } from 'lucide-react';
 
 function RailButton({
   active,
@@ -279,6 +279,13 @@ export default function ServerRail() {
         </RailButton>
         <RailButton active={false} onClick={() => window.dispatchEvent(new Event('kora:open-search'))} title="Rechercher dans tes messages (Ctrl+K)">
           {ICONS.search}
+        </RailButton>
+        <RailButton
+          active={location.pathname.startsWith('/app/shorts')}
+          onClick={() => navigate('/app/shorts')}
+          title="Shorts"
+        >
+          <Clapperboard size={21} />
         </RailButton>
         <div className="h-px w-8 shrink-0 bg-line" />
         {/* Communautés sans dossier */}

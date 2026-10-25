@@ -21,6 +21,7 @@ import Settings from './pages/Settings';
 import NotificationsPage from './pages/NotificationsPage';
 import Communities from './pages/Communities';
 import Discover from './pages/Discover';
+import Shorts from './pages/Shorts';
 import Community from './pages/Community';
 import ChannelRoute from './pages/ChannelRoute';
 import InvitePage from './pages/InvitePage';
@@ -112,6 +113,7 @@ export default function App() {
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="communautes" element={<Communities />} />
               <Route path="decouvrir" element={<Discover />} />
+              <Route path="shorts" element={<Shorts />} />
               <Route path="c/:communityId" element={<Community />}>
                 <Route path=":channelId" element={<ChannelRoute />} />
               </Route>

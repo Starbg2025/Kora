@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { Clapperboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { useNotifications } from '../context/NotificationsContext';
@@ -39,9 +40,10 @@ export default function BottomNav() {
   const myPresence = profile ? online[profile.id]?.status ?? profile.status : 'hors_ligne';
 
   const item = (active: boolean) =>
-    `relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${
+    `relative flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-2 text-[9px] font-semibold ${
       active ? 'text-primary' : 'text-muted'
     }`;
+  const label = 'max-w-full truncate';
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
@@ -49,15 +51,19 @@ export default function BottomNav() {
     >
       <NavLink to="/app/dm" className={({ isActive }) => item(isActive)} aria-label="Discussions">
         {chatIcon}
-        Discussions
+        <span className={label}>Discussions</span>
       </NavLink>
       <NavLink to="/app/amis" className={({ isActive }) => item(isActive)} aria-label="Amis">
         {friendsIcon}
-        Amis
+        <span className={label}>Amis</span>
       </NavLink>
       <NavLink to="/app/communautes" className={({ isActive }) => item(isActive)} aria-label="Communautés">
         {communitiesIcon}
-        Communautés
+        <span className={label}>Communautés</span>
+      </NavLink>
+      <NavLink to="/app/shorts" className={({ isActive }) => item(isActive)} aria-label="Shorts">
+        <Clapperboard size={24} />
+        <span className={label}>Shorts</span>
       </NavLink>
       <NavLink to="/app/notifications" className={({ isActive }) => item(isActive)} aria-label="Notifications">
         <span className="relative">
@@ -68,7 +74,7 @@ export default function BottomNav() {
             </span>
           )}
         </span>
-        Notifs
+        <span className={label}>Notifs</span>
       </NavLink>
       <NavLink
         to="/app/parametres?onglet=profil"
@@ -76,7 +82,7 @@ export default function BottomNav() {
         aria-label="Mon profil"
       >
         <Avatar profile={profile} size={24} status={myPresence} showStatus />
-        Profil
+        <span className={label}>Profil</span>
       </NavLink>
     </nav>
   );

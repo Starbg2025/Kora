@@ -51,10 +51,10 @@ export default function NotificationsPage() {
 
   return (
     <div className="mx-auto h-full max-w-2xl overflow-y-auto p-4 md:p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg font-bold">Notifications</h1>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="min-w-0 text-lg font-bold">Notifications</h1>
         {unreadCount > 0 && (
-          <button onClick={markAllRead} className="rounded-lg bg-surface2 px-4 py-2 text-sm font-semibold text-primary hover:bg-line">
+          <button onClick={markAllRead} className="shrink-0 whitespace-nowrap rounded-lg bg-surface2 px-4 py-2 text-sm font-semibold text-primary hover:bg-line">
             Tout marquer comme lu
           </button>
         )}
